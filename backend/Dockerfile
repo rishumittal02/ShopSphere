@@ -29,7 +29,7 @@ COPY start.sh .
 RUN chmod +x start.sh
 
 # Expose backend port
-EXPOSE 8000
+EXPOSE 8080
 
 # Default command
 CMD ["./start.sh"]
