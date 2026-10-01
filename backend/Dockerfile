@@ -23,9 +23,11 @@ RUN pip install --no-cache-dir --upgrade pip && \
 COPY alembic.ini .
 COPY alembic/ ./alembic/
 COPY app/ ./app/
+COPY start.sh .
+RUN chmod +x start.sh
 
 # Expose backend port
 EXPOSE 8000
 
 # Default command
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["./start.sh"]
