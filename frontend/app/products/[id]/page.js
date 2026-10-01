@@ -5,7 +5,7 @@ import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import { apiFetch } from "../../../utils/api";
 import { useAuth } from "../../../context/AuthContext";
-import { getProductImage, getProductMeta } from "../../../utils/productImages";
+import { getProductImage, getProductMeta, getProductReviews } from "../../../utils/productImages";
 
 export default function ProductDetailsPage() {
   const params = useParams();
@@ -20,6 +20,23 @@ export default function ProductDetailsPage() {
   const [error, setError] = useState("");
   const [feedback, setFeedback] = useState({ type: "", message: "" });
   const [quantity, setQuantity] = useState(1);
+
+  // Reviews state
+  const [reviews, setReviews] = useState([]);
+  const [helpfulVotes, setHelpfulVotes] = useState({});
+  const [showReviewModal, setShowReviewModal] = useState(false);
+  const [newReview, setNewReview] = useState({
+    author: "",
+    city: "",
+    rating: 5,
+    title: "",
+    comment: ""
+  });
+  const [reviewSubmitted, setReviewSubmitted] = useState(false);
+
+  // Delivery check state
+  const [pincode, setPincode] = useState("560001");
+  const [pincodeStatus, setPincodeStatus] = useState("FREE Express Delivery by Tomorrow, 5 PM");
 
   useEffect(() => {
     const fetchProduct = async () => {
@@ -43,6 +60,7 @@ export default function ProductDetailsPage() {
 
         const data = await response.json();
         setProduct(data);
+        setReviews(getProductReviews(data));
       } catch (err) {
         setError(err.message);
       } finally {
@@ -86,9 +104,7 @@ export default function ProductDetailsPage() {
       const data = await response.json();
 
       if (!response.ok) {
-        throw new Error(
-          data.detail || "Failed to add product to cart"
-        );
+        throw new Error(data.detail || "Failed to add product to cart");
       }
 
       if (goToCart) {
@@ -108,6 +124,45 @@ export default function ProductDetailsPage() {
     } finally {
       setAddingToCart(false);
       setBuyingNow(false);
+    }
+  };
+
+  const handleHelpfulVote = (reviewId) => {
+    setHelpfulVotes((prev) => ({
+      ...prev,
+      [reviewId]: (prev[reviewId] || 0) + 1
+    }));
+  };
+
+  const handleSubmitReview = (e) => {
+    e.preventDefault();
+    if (!newReview.author.trim() || !newReview.comment.trim()) return;
+
+    const submitted = {
+      id: Date.now(),
+      author: newReview.author.trim(),
+      city: newReview.city.trim() || "Verified Shopper",
+      rating: Number(newReview.rating),
+      date: "Just now",
+      verified: true,
+      helpfulCount: 1,
+      title: newReview.title.trim() || "Great purchase!",
+      comment: newReview.comment.trim()
+    };
+
+    setReviews([submitted, ...reviews]);
+    setNewReview({ author: "", city: "", rating: 5, title: "", comment: "" });
+    setShowReviewModal(false);
+    setReviewSubmitted(true);
+    setTimeout(() => setReviewSubmitted(false), 5000);
+  };
+
+  const handleCheckPincode = (e) => {
+    e.preventDefault();
+    if (pincode.length === 6) {
+      setPincodeStatus("✓ Delivery available! Free Express delivery by tomorrow, 5 PM");
+    } else {
+      setPincodeStatus("Please enter a valid 6-digit PIN code");
     }
   };
 
@@ -140,68 +195,80 @@ export default function ProductDetailsPage() {
           </p>
           <Link
             href="/products"
-            className="mt-6 inline-block rounded-full bg-blue-600 px-6 py-2.5 text-xs font-bold text-white hover:bg-blue-500 transition shadow-lg"
+            className="mt-6 inline-block rounded-full bg-blue-600 px-6 py-2.5 text-xs font-bold text-white hover:bg-blue-500 transition shadow-lg shadow-blue-500/20"
           >
-            ← Back to Products
+            ← Back to Storefront
           </Link>
         </div>
       </main>
     );
   }
 
+  const meta = getProductMeta(product);
+  const imageUrl = getProductImage(product);
   const isOutOfStock = product.stock <= 0;
-  const imageUrl = getProductImage({ name: product.name, category: product.category?.name });
-  const meta = getProductMeta({ id: product.id, price: product.price });
   const savings = Math.max(0, meta.originalPrice - Number(product.price));
+  const emiPerMonth = Math.round(Number(product.price) / 6);
 
   return (
     <main className="min-h-screen bg-gray-950 px-4 sm:px-6 lg:px-10 py-10 text-white">
       <div className="mx-auto max-w-6xl">
         {/* Breadcrumb Navigation */}
         <nav className="mb-6 flex items-center gap-2 text-xs text-gray-400">
-          <Link href="/" className="hover:text-white transition">Home</Link>
+          <Link href="/" className="hover:text-blue-400 transition">Home</Link>
           <span>/</span>
-          <Link href="/products" className="hover:text-white transition">Products</Link>
+          <Link href="/products" className="hover:text-blue-400 transition">Products</Link>
           <span>/</span>
-          <span className="text-blue-400 font-semibold">{product.category?.name || "General"}</span>
+          <span className="text-gray-300 capitalize">{product.category?.name || "General"}</span>
           <span>/</span>
-          <span className="text-gray-300 truncate max-w-[200px]">{product.name}</span>
+          <span className="text-blue-400 line-clamp-1 font-semibold">{product.name}</span>
         </nav>
 
-        {/* Feedback Alert Notification */}
+        {/* Feedback Alert Toast */}
         {feedback.message && (
           <div
-            className={`mb-6 rounded-2xl p-4 text-xs font-semibold flex items-center justify-between shadow-md ${
+            className={`mb-6 rounded-2xl p-4 text-xs font-semibold flex items-center justify-between shadow-lg ${
               feedback.type === "success"
-                ? "border border-emerald-500/30 bg-emerald-950/40 text-emerald-300"
-                : "border border-red-500/30 bg-red-950/40 text-red-300"
+                ? "bg-emerald-950/80 border border-emerald-500/30 text-emerald-300"
+                : "bg-red-950/80 border border-red-500/30 text-red-300"
             }`}
           >
-            <div className="flex items-center gap-2.5">
+            <div className="flex items-center gap-2">
               <span>{feedback.type === "success" ? "✓" : "⚠"}</span>
               <span>{feedback.message}</span>
             </div>
             {feedback.type === "success" && (
-              <Link href="/cart" className="underline font-bold hover:text-white ml-4">
-                View in Cart →
+              <Link
+                href="/cart"
+                className="ml-4 rounded-xl bg-emerald-500 px-3 py-1 font-bold text-gray-950 hover:bg-emerald-400 transition"
+              >
+                View Cart →
               </Link>
             )}
           </div>
         )}
 
-        {/* Main Product Showcase (2-Column) */}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-10 lg:gap-14 rounded-3xl border border-gray-800/80 bg-gray-900/40 p-6 sm:p-10 backdrop-blur-md">
-          {/* Left Column: Product Image Gallery */}
-          <div className="flex flex-col gap-4">
-            <div className="relative aspect-square w-full overflow-hidden rounded-2xl border border-gray-800 bg-gray-950 shadow-2xl">
+        {reviewSubmitted && (
+          <div className="mb-6 rounded-2xl bg-emerald-950/80 border border-emerald-500/30 p-4 text-xs font-semibold text-emerald-300 shadow-lg">
+            ✓ Thank you! Your review has been submitted and published below.
+          </div>
+        )}
+
+        {/* Product Showcase: 2-Column Responsive Layout */}
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-10 lg:gap-14 rounded-3xl border border-gray-800/80 bg-gray-900/40 p-6 sm:p-10 backdrop-blur-xl shadow-2xl">
+          {/* Left Column: Product Image Frame */}
+          <div className="space-y-4">
+            <div className="relative aspect-square w-full overflow-hidden rounded-3xl border border-gray-800 bg-gray-950 shadow-inner group">
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img
                 src={imageUrl}
                 alt={product.name}
-                className="h-full w-full object-cover object-center"
+                className="h-full w-full object-cover object-center transition-transform duration-700 group-hover:scale-105"
               />
-              <div className="absolute top-4 left-4 flex gap-2">
-                <span className="rounded-full bg-blue-600 px-3 py-1 text-xs font-bold text-white shadow-md">
+
+              {/* Badges Overlay */}
+              <div className="absolute top-4 left-4 flex flex-col gap-2">
+                <span className="rounded-full bg-blue-600/90 backdrop-blur-md px-3 py-1 text-xs font-black tracking-wider text-white shadow-lg uppercase">
                   {meta.badge}
                 </span>
                 <span className="rounded-full bg-amber-500 px-2.5 py-1 text-xs font-bold text-gray-950 shadow-md">
@@ -211,24 +278,27 @@ export default function ProductDetailsPage() {
             </div>
 
             {/* Trust highlights below image */}
-            <div className="grid grid-cols-3 gap-3 text-center text-[11px] text-gray-400 border border-gray-800/80 rounded-xl p-3 bg-gray-950/60">
+            <div className="grid grid-cols-3 gap-3 text-center text-[11px] text-gray-400 border border-gray-800/80 rounded-2xl p-3.5 bg-gray-950/60">
               <div>
-                <span className="text-lg block">🚚</span>
-                <span className="font-semibold text-gray-300">Free Shipping</span>
+                <span className="text-xl block mb-1">🚚</span>
+                <span className="font-semibold text-gray-300 block">Free Shipping</span>
+                <span className="text-[10px] text-gray-500">All India</span>
               </div>
               <div>
-                <span className="text-lg block">🛡️</span>
-                <span className="font-semibold text-gray-300">1 Year Warranty</span>
+                <span className="text-xl block mb-1">🛡️</span>
+                <span className="font-semibold text-gray-300 block">100% Genuine</span>
+                <span className="text-[10px] text-gray-500">Brand Certified</span>
               </div>
               <div>
-                <span className="text-lg block">🔄</span>
-                <span className="font-semibold text-gray-300">7-Day Returns</span>
+                <span className="text-xl block mb-1">🔄</span>
+                <span className="font-semibold text-gray-300 block">7-Day Return</span>
+                <span className="text-[10px] text-gray-500">Hassle Free</span>
               </div>
             </div>
           </div>
 
           {/* Right Column: Product Info & Purchase Options */}
-          <div className="flex flex-col justify-between">
+          <div className="flex flex-col justify-between space-y-6">
             <div>
               <div className="flex items-center justify-between gap-2">
                 <span className="rounded-full bg-blue-500/10 border border-blue-500/20 px-3 py-1 text-xs font-bold uppercase tracking-wider text-blue-400">
@@ -258,7 +328,9 @@ export default function ProductDetailsPage() {
                   Save ₹{Number(savings).toLocaleString("en-IN", { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
                 </span>
               </div>
-              <p className="text-[11px] text-gray-500 mt-0.5">Inclusive of all taxes & duties.</p>
+              <p className="text-[11px] text-gray-400 mt-1">
+                Inclusive of all taxes & GST. Zero-cost EMI from <strong className="text-white">₹{emiPerMonth.toLocaleString("en-IN")}/mo</strong>
+              </p>
 
               {/* Stock Status Urgency */}
               <div className="mt-5">
@@ -284,35 +356,45 @@ export default function ProductDetailsPage() {
                 </span>
               </div>
 
-              {/* Product Description */}
-              <div className="mt-6 border-t border-gray-800/80 pt-6">
+              {/* Product Overview Description */}
+              <div className="mt-6 border-t border-gray-800/80 pt-5">
                 <h3 className="text-xs font-bold uppercase tracking-wider text-gray-400 mb-2">
                   Product Overview
                 </h3>
-                <p className="text-sm text-gray-300 leading-relaxed">
+                <p className="text-xs sm:text-sm text-gray-300 leading-relaxed">
                   {product.description || "Premium quality e-commerce product crafted with the highest standards and industry certifications."}
                 </p>
               </div>
 
-              {/* Key Features Bullet Points */}
-              <div className="mt-4 space-y-1.5 text-xs text-gray-400">
-                <div className="flex items-center gap-2">
-                  <span className="text-emerald-400">✓</span>
-                  <span>100% Genuine & Brand Certified</span>
-                </div>
-                <div className="flex items-center gap-2">
-                  <span className="text-emerald-400">✓</span>
-                  <span>Standard 1-Year Comprehensive Manufacturer Warranty</span>
-                </div>
-                <div className="flex items-center gap-2">
-                  <span className="text-emerald-400">✓</span>
-                  <span>Zero-Cost EMI & Cash on Delivery Available</span>
-                </div>
+              {/* Pincode Delivery Check */}
+              <div className="mt-5 rounded-2xl border border-gray-800 bg-gray-950/70 p-4">
+                <label className="text-[11px] font-bold uppercase tracking-wider text-gray-400 block mb-1.5">
+                  Check Delivery Time & Availability
+                </label>
+                <form onSubmit={handleCheckPincode} className="flex gap-2">
+                  <input
+                    type="text"
+                    maxLength={6}
+                    value={pincode}
+                    onChange={(e) => setPincode(e.target.value)}
+                    placeholder="Enter 6-digit PIN code"
+                    className="w-44 rounded-xl border border-gray-800 bg-gray-900 px-3 py-1.5 text-xs text-white outline-none focus:border-blue-500 font-mono"
+                  />
+                  <button
+                    type="submit"
+                    className="rounded-xl bg-gray-800 px-4 py-1.5 text-xs font-bold text-gray-200 hover:bg-gray-700 transition"
+                  >
+                    Check
+                  </button>
+                </form>
+                <p className="text-[11px] text-emerald-400 mt-2 font-medium">
+                  {pincodeStatus}
+                </p>
               </div>
             </div>
 
             {/* Actions: Quantity Stepper & Dual Buttons */}
-            <div className="mt-8 border-t border-gray-800/80 pt-6 space-y-4">
+            <div className="border-t border-gray-800/80 pt-5 space-y-4">
               {!isOutOfStock && (
                 <div className="flex items-center gap-4">
                   <span className="text-xs font-semibold text-gray-400">Quantity:</span>
@@ -359,58 +441,256 @@ export default function ProductDetailsPage() {
                   {buyingNow ? "Processing..." : "⚡ Buy Now"}
                 </button>
               </div>
+
+              {/* PAYMENT METHODS & TRUST BADGES */}
+              <div className="rounded-2xl border border-gray-800/80 bg-gray-950/80 p-4 space-y-3">
+                <div className="flex items-center justify-between text-[11px] text-gray-400">
+                  <span className="font-bold text-gray-300 uppercase tracking-wider">Accepted Payment Methods</span>
+                  <span className="text-emerald-400 font-semibold">🔒 256-Bit SSL Secure</span>
+                </div>
+
+                <div className="flex flex-wrap items-center gap-2 pt-1">
+                  <span className="rounded-lg border border-gray-800 bg-gray-900 px-2.5 py-1 text-[11px] font-bold text-blue-400">
+                    💳 Cards (Visa/Mastercard/RuPay)
+                  </span>
+                  <span className="rounded-lg border border-gray-800 bg-gray-900 px-2.5 py-1 text-[11px] font-bold text-emerald-400">
+                    ⚡ UPI (GPay/PhonePe/Paytm)
+                  </span>
+                  <span className="rounded-lg border border-gray-800 bg-gray-900 px-2.5 py-1 text-[11px] font-bold text-amber-400">
+                    🏦 Net Banking
+                  </span>
+                  <span className="rounded-lg border border-gray-800 bg-gray-900 px-2.5 py-1 text-[11px] font-bold text-purple-400">
+                    💵 Cash on Delivery
+                  </span>
+                </div>
+              </div>
             </div>
           </div>
         </div>
 
-        {/* Customer Reviews Section */}
-        <section className="mt-12 rounded-3xl border border-gray-800/80 bg-gray-900/30 p-8 sm:p-10 backdrop-blur-md">
-          <div className="flex items-center justify-between mb-8">
+        {/* CUSTOMER REVIEWS SECTION */}
+        <section className="mt-12 rounded-3xl border border-gray-800/80 bg-gray-900/30 p-6 sm:p-10 backdrop-blur-md space-y-8">
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 border-b border-gray-800/80 pb-6">
             <div>
               <span className="text-xs font-bold uppercase tracking-wider text-blue-400">Customer Feedback</span>
-              <h2 className="text-2xl font-black text-white mt-1">Verified Buyer Reviews</h2>
+              <h2 className="text-2xl sm:text-3xl font-black text-white mt-1">Verified Customer Reviews</h2>
+              <p className="text-xs text-gray-400 mt-1">
+                Real feedback from verified purchasers across India
+              </p>
             </div>
-            <div className="text-right">
-              <p className="text-2xl font-black text-amber-400">★ {meta.rating} / 5</p>
-              <p className="text-xs text-gray-500">Based on {meta.reviewsCount} verified purchases</p>
+
+            <div className="flex items-center gap-4">
+              <div className="text-right">
+                <p className="text-2xl font-black text-amber-400">★ {meta.rating} / 5</p>
+                <p className="text-[11px] text-gray-500">Based on {meta.reviewsCount} purchases</p>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => setShowReviewModal(true)}
+                className="rounded-xl bg-blue-600 px-4 py-2.5 text-xs font-bold text-white hover:bg-blue-500 transition shadow-lg shadow-blue-500/20"
+              >
+                ✍ Write a Review
+              </button>
             </div>
           </div>
 
+          {/* RATING BREAKDOWN BARS */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 p-4 rounded-2xl border border-gray-800/60 bg-gray-950/60 text-xs">
+            <div className="flex items-center gap-2">
+              <span className="w-12 text-gray-400">5 Stars</span>
+              <div className="flex-1 h-2 rounded-full bg-gray-800 overflow-hidden">
+                <div className="h-full bg-amber-400 rounded-full w-[82%]" />
+              </div>
+              <span className="w-8 text-right font-semibold text-white">82%</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <span className="w-12 text-gray-400">4 Stars</span>
+              <div className="flex-1 h-2 rounded-full bg-gray-800 overflow-hidden">
+                <div className="h-full bg-amber-400 rounded-full w-[14%]" />
+              </div>
+              <span className="w-8 text-right font-semibold text-white">14%</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <span className="w-12 text-gray-400">3 Stars</span>
+              <div className="flex-1 h-2 rounded-full bg-gray-800 overflow-hidden">
+                <div className="h-full bg-amber-400 rounded-full w-[3%]" />
+              </div>
+              <span className="w-8 text-right font-semibold text-white">3%</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <span className="w-12 text-gray-400">2 & 1 Star</span>
+              <div className="flex-1 h-2 rounded-full bg-gray-800 overflow-hidden">
+                <div className="h-full bg-amber-400 rounded-full w-[1%]" />
+              </div>
+              <span className="w-8 text-right font-semibold text-white">1%</span>
+            </div>
+          </div>
+
+          {/* REVIEWS GRID */}
           <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
-            <div className="rounded-2xl border border-gray-800 bg-gray-950/70 p-5 space-y-2">
-              <div className="flex items-center justify-between text-xs">
-                <strong className="text-white">Aman Sharma</strong>
-                <span className="text-emerald-400">✓ Verified Buyer</span>
-              </div>
-              <div className="text-amber-400 text-xs">★★★★★</div>
-              <p className="text-xs text-gray-400 leading-relaxed">
-                &quot;Exceeded my expectations! Build quality and packaging were top-tier. Arrived within 48 hours in pristine condition.&quot;
-              </p>
-            </div>
+            {reviews.map((rev) => {
+              const helpfulCount = (rev.helpfulCount || 0) + (helpfulVotes[rev.id] || 0);
+              const initials = rev.author
+                .split(" ")
+                .map((n) => n[0])
+                .join("")
+                .substring(0, 2)
+                .toUpperCase();
 
-            <div className="rounded-2xl border border-gray-800 bg-gray-950/70 p-5 space-y-2">
-              <div className="flex items-center justify-between text-xs">
-                <strong className="text-white">Pooja Patel</strong>
-                <span className="text-emerald-400">✓ Verified Buyer</span>
-              </div>
-              <div className="text-amber-400 text-xs">★★★★★</div>
-              <p className="text-xs text-gray-400 leading-relaxed">
-                &quot;Genuine product at an unbeatable price point. Setup took less than 2 minutes. Highly recommend ShopSphere!&quot;
-              </p>
-            </div>
+              return (
+                <div
+                  key={rev.id}
+                  className="rounded-2xl border border-gray-800/80 bg-gray-950/70 p-5 space-y-3 flex flex-col justify-between hover:border-gray-700 transition"
+                >
+                  <div className="space-y-2.5">
+                    {/* Author & Avatar */}
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2.5">
+                        <div className="h-8 w-8 rounded-full bg-gradient-to-br from-blue-600 to-indigo-600 flex items-center justify-center font-bold text-white text-xs">
+                          {initials}
+                        </div>
+                        <div>
+                          <strong className="text-white text-xs block">{rev.author}</strong>
+                          <span className="text-[10px] text-gray-400">{rev.city}</span>
+                        </div>
+                      </div>
+                      <span className="text-[10px] text-emerald-400 font-semibold bg-emerald-500/10 border border-emerald-500/20 rounded-full px-2 py-0.5">
+                        ✓ Verified
+                      </span>
+                    </div>
 
-            <div className="rounded-2xl border border-gray-800 bg-gray-950/70 p-5 space-y-2">
-              <div className="flex items-center justify-between text-xs">
-                <strong className="text-white">Vikram Rao</strong>
-                <span className="text-emerald-400">✓ Verified Buyer</span>
-              </div>
-              <div className="text-amber-400 text-xs">★★★★☆</div>
-              <p className="text-xs text-gray-400 leading-relaxed">
-                &quot;Solid product, exactly as described in the specs. Very satisfied with customer support and tracking.&quot;
-              </p>
-            </div>
+                    {/* Rating & Date */}
+                    <div className="flex items-center justify-between text-xs">
+                      <div className="text-amber-400">
+                        {"★".repeat(rev.rating)}
+                        {"☆".repeat(5 - rev.rating)}
+                      </div>
+                      <span className="text-[11px] text-gray-500">{rev.date}</span>
+                    </div>
+
+                    {/* Title & Comment */}
+                    <p className="text-xs font-bold text-gray-200">{rev.title}</p>
+                    <p className="text-xs text-gray-400 leading-relaxed">
+                      &quot;{rev.comment}&quot;
+                    </p>
+                  </div>
+
+                  {/* Helpful Button */}
+                  <div className="border-t border-gray-800/60 pt-3 flex items-center justify-between text-[11px]">
+                    <span className="text-gray-500">Was this review helpful?</span>
+                    <button
+                      type="button"
+                      onClick={() => handleHelpfulVote(rev.id)}
+                      className="rounded-lg bg-gray-900 border border-gray-800 px-2.5 py-1 text-gray-300 hover:text-white hover:bg-gray-800 transition font-medium"
+                    >
+                      👍 Helpful ({helpfulCount})
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
           </div>
         </section>
+
+        {/* WRITE A REVIEW MODAL */}
+        {showReviewModal && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
+            <div className="w-full max-w-lg rounded-3xl border border-gray-800 bg-gray-900 p-6 sm:p-8 shadow-2xl">
+              <div className="flex items-center justify-between mb-5">
+                <h3 className="text-lg font-black text-white">Write a Review for {product.name}</h3>
+                <button
+                  type="button"
+                  onClick={() => setShowReviewModal(false)}
+                  className="text-gray-400 hover:text-white text-lg font-bold"
+                >
+                  ✕
+                </button>
+              </div>
+
+              <form onSubmit={handleSubmitReview} className="space-y-4">
+                <div>
+                  <label className="block text-xs font-semibold text-gray-300 mb-1">Your Name *</label>
+                  <input
+                    type="text"
+                    required
+                    value={newReview.author}
+                    onChange={(e) => setNewReview({ ...newReview, author: e.target.value })}
+                    placeholder="e.g. Priya Sharma"
+                    className="w-full rounded-xl border border-gray-800 bg-gray-950 px-3 py-2 text-xs text-white outline-none focus:border-blue-500"
+                  />
+                </div>
+
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-xs font-semibold text-gray-300 mb-1">City / Location</label>
+                    <input
+                      type="text"
+                      value={newReview.city}
+                      onChange={(e) => setNewReview({ ...newReview, city: e.target.value })}
+                      placeholder="e.g. Mumbai"
+                      className="w-full rounded-xl border border-gray-800 bg-gray-950 px-3 py-2 text-xs text-white outline-none focus:border-blue-500"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-semibold text-gray-300 mb-1">Rating *</label>
+                    <select
+                      value={newReview.rating}
+                      onChange={(e) => setNewReview({ ...newReview, rating: Number(e.target.value) })}
+                      className="w-full rounded-xl border border-gray-800 bg-gray-950 px-3 py-2 text-xs text-white outline-none focus:border-blue-500"
+                    >
+                      <option value={5}>★★★★★ (5 Stars - Excellent)</option>
+                      <option value={4}>★★★★☆ (4 Stars - Very Good)</option>
+                      <option value={3}>★★★☆☆ (3 Stars - Average)</option>
+                      <option value={2}>★★☆☆☆ (2 Stars - Below Average)</option>
+                      <option value={1}>★☆☆☆☆ (1 Star - Poor)</option>
+                    </select>
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-gray-300 mb-1">Review Headline</label>
+                  <input
+                    type="text"
+                    value={newReview.title}
+                    onChange={(e) => setNewReview({ ...newReview, title: e.target.value })}
+                    placeholder="e.g. Comfortable fit and super fast delivery!"
+                    className="w-full rounded-xl border border-gray-800 bg-gray-950 px-3 py-2 text-xs text-white outline-none focus:border-blue-500"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-gray-300 mb-1">Your Detailed Experience *</label>
+                  <textarea
+                    rows={4}
+                    required
+                    value={newReview.comment}
+                    onChange={(e) => setNewReview({ ...newReview, comment: e.target.value })}
+                    placeholder="What did you like or dislike? How does it fit or perform? Is the build quality as described?"
+                    className="w-full rounded-xl border border-gray-800 bg-gray-950 px-3 py-2 text-xs text-white outline-none focus:border-blue-500"
+                  />
+                </div>
+
+                <div className="flex justify-end gap-3 pt-2">
+                  <button
+                    type="button"
+                    onClick={() => setShowReviewModal(false)}
+                    className="rounded-xl border border-gray-700 bg-gray-800 px-4 py-2 text-xs font-semibold text-gray-300 hover:bg-gray-700"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    className="rounded-xl bg-blue-600 px-5 py-2 text-xs font-bold text-white hover:bg-blue-500 shadow-md shadow-blue-500/25"
+                  >
+                    Submit Review
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
+        )}
       </div>
     </main>
   );
