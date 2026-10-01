@@ -1,0 +1,194 @@
+def test_create_product_success(client, admin_token, sample_category):
+    headers = {"Authorization": f"Bearer {admin_token}"}
+    payload = {
+        "name": "Noise Cancelling Headphones",
+        "description": "Wireless headphones with ANC",
+        "price": 199.99,
+        "stock": 25,
+        "category_id": sample_category.id,
+    }
+    response = client.post("/products/", json=payload, headers=headers)
+    assert response.status_code == 200
+    data = response.json()
+    assert data["name"] == payload["name"]
+    assert data["price"] == payload["price"]
+    assert data["stock"] == payload["stock"]
+    assert data["category"]["id"] == sample_category.id
+
+
+def test_create_product_invalid_category(client, admin_token):
+    headers = {"Authorization": f"Bearer {admin_token}"}
+    payload = {
+        "name": "Ghost Product",
+        "description": "No category",
+        "price": 49.99,
+        "stock": 10,
+        "category_id": 999999,
+    }
+    response = client.post("/products/", json=payload, headers=headers)
+    assert response.status_code == 404
+    assert "Category not found" in response.json()["detail"]
+
+
+def test_create_product_invalid_price(client, admin_token, sample_category):
+    headers = {"Authorization": f"Bearer {admin_token}"}
+    payload = {
+        "name": "Zero Price Item",
+        "price": 0,  # Invalid, must be > 0
+        "stock": 10,
+        "category_id": sample_category.id,
+    }
+    response = client.post("/products/", json=payload, headers=headers)
+    assert response.status_code == 422
+
+
+def test_create_product_invalid_stock(client, admin_token, sample_category):
+    headers = {"Authorization": f"Bearer {admin_token}"}
+    payload = {
+        "name": "Negative Stock Item",
+        "price": 29.99,
+        "stock": -5,  # Invalid, must be >= 0
+        "category_id": sample_category.id,
+    }
+    response = client.post("/products/", json=payload, headers=headers)
+    assert response.status_code == 422
+
+
+def test_get_product_by_id(client, sample_product):
+    response = client.get(f"/products/{sample_product.id}")
+    assert response.status_code == 200
+    data = response.json()
+    assert data["id"] == sample_product.id
+    assert data["name"] == sample_product.name
+
+
+def test_get_product_not_found(client):
+    response = client.get("/products/9999999")
+    assert response.status_code == 404
+    assert "Product not found" in response.json()["detail"]
+
+
+def test_update_product(client, admin_token, sample_product):
+    headers = {"Authorization": f"Bearer {admin_token}"}
+    payload = {
+        "name": "Updated Smartphone X Pro",
+        "description": "Upgraded processor",
+        "price": 899.99,
+        "stock": 15,
+        "category_id": sample_product.category_id,
+    }
+    response = client.put(f"/products/{sample_product.id}", json=payload, headers=headers)
+    assert response.status_code == 200
+    data = response.json()
+    assert data["name"] == "Updated Smartphone X Pro"
+    assert data["price"] == 899.99
+    assert data["stock"] == 15
+
+
+def test_delete_product(client, admin_token, sample_product):
+    headers = {"Authorization": f"Bearer {admin_token}"}
+    response = client.delete(f"/products/{sample_product.id}", headers=headers)
+    assert response.status_code == 200
+    assert "deleted successfully" in response.json()["message"]
+
+    # Verify 404 after deletion
+    check_response = client.get(f"/products/{sample_product.id}")
+    assert check_response.status_code == 404
+
+
+def test_search_products(client, sample_product, sample_category, db_session):
+    from app.models.product import Product
+
+    laptop = Product(
+        name="MacBook Pro",
+        description="Powerful laptop with M3 Max",
+        price=1999.99,
+        stock=5,
+        category_id=sample_category.id,
+    )
+    db_session.add(laptop)
+    db_session.commit()
+
+    # Search for "MacBook"
+    res = client.get("/products/?search=macbook")
+    assert res.status_code == 200
+    names = [p["name"] for p in res.json()]
+    assert "MacBook Pro" in names
+    assert sample_product.name not in names
+
+    # Search for description term "OLED"
+    res_desc = client.get("/products/?search=oled")
+    assert res_desc.status_code == 200
+    names_desc = [p["name"] for p in res_desc.json()]
+    assert sample_product.name in names_desc
+
+
+def test_filter_by_category(client, sample_product, db_session):
+    from app.models.category import Category
+    from app.models.product import Product
+
+    books_cat = Category(name="Books")
+    db_session.add(books_cat)
+    db_session.commit()
+
+    book = Product(
+        name="Design Patterns Book",
+        description="Architecture patterns",
+        price=39.99,
+        stock=20,
+        category_id=books_cat.id,
+    )
+    db_session.add(book)
+    db_session.commit()
+
+    res = client.get(f"/products/?category_id={books_cat.id}")
+    assert res.status_code == 200
+    items = res.json()
+    assert len(items) == 1
+    assert items[0]["name"] == "Design Patterns Book"
+
+
+def test_sort_products(client, sample_category, db_session):
+    from app.models.product import Product
+
+    p1 = Product(name="Alpha Product", price=10.00, stock=5, category_id=sample_category.id)
+    p2 = Product(name="Beta Product", price=100.00, stock=5, category_id=sample_category.id)
+    p3 = Product(name="Gamma Product", price=50.00, stock=5, category_id=sample_category.id)
+    db_session.add_all([p1, p2, p3])
+    db_session.commit()
+
+    # Price asc
+    res_price_asc = client.get("/products/?sort=price_asc")
+    prices = [p["price"] for p in res_price_asc.json()]
+    assert prices == sorted(prices)
+
+    # Price desc
+    res_price_desc = client.get("/products/?sort=price_desc")
+    prices_desc = [p["price"] for p in res_price_desc.json()]
+    assert prices_desc == sorted(prices_desc, reverse=True)
+
+
+def test_pagination_products(client, sample_category, db_session):
+    from app.models.product import Product
+
+    products = [
+        Product(name=f"Item {i}", price=10.0 + i, stock=5, category_id=sample_category.id)
+        for i in range(15)
+    ]
+    db_session.add_all(products)
+    db_session.commit()
+
+    # Page 1 (limit 5, skip 0)
+    res_p1 = client.get("/products/?skip=0&limit=5")
+    assert res_p1.status_code == 200
+    assert len(res_p1.json()) == 5
+
+    # Page 2 (limit 5, skip 5)
+    res_p2 = client.get("/products/?skip=5&limit=5")
+    assert res_p2.status_code == 200
+    assert len(res_p2.json()) == 5
+
+    # Verify no item overlap
+    ids_p1 = {p["id"] for p in res_p1.json()}
+    ids_p2 = {p["id"] for p in res_p2.json()}
+    assert ids_p1.isdisjoint(ids_p2)
