@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import ProductCard from "../../components/ProductCard";
+import { apiFetch } from "../../utils/api";
 
 export default function ProductsPage() {
   const [products, setProducts] = useState([]);
@@ -20,7 +21,7 @@ export default function ProductsPage() {
   useEffect(() => {
     const fetchCategories = async () => {
       try {
-        const response = await fetch(
+        const response = await apiFetch(
           "http://localhost:8000/categories/"
         );
 
@@ -64,7 +65,7 @@ export default function ProductsPage() {
           params.append("limit", limit);
 
           const url = `http://localhost:8000/products/?${params.toString()}`;
-          const response = await fetch(url);
+          const response = await apiFetch(url);
 
           if (!response.ok) {
             throw new Error("Failed to fetch products");

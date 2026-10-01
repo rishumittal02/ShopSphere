@@ -31,7 +31,7 @@ export default function ProductDetailsPage() {
         setLoading(true);
         setError("");
 
-        const response = await fetch(
+        const response = await apiFetch(
           `http://localhost:8000/products/${productId}`
         );
 

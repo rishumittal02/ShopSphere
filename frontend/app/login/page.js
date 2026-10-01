@@ -4,6 +4,7 @@ import { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useAuth } from "../../context/AuthContext";
+import { apiFetch } from "../../utils/api";
 
 export default function LoginPage() {
   const router = useRouter();
@@ -39,7 +40,7 @@ export default function LoginPage() {
       body.append("username", formData.email);
       body.append("password", formData.password);
 
-      const response = await fetch(
+      const response = await apiFetch(
         "http://localhost:8000/auth/login",
         {
           method: "POST",

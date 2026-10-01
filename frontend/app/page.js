@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import ProductCard from "../components/ProductCard";
+import { apiFetch } from "../utils/api";
 
 export default function Home() {
   const [products, setProducts] = useState([]);
@@ -14,7 +15,7 @@ export default function Home() {
       try {
         setLoading(true);
         setError("");
-        const response = await fetch(
+        const response = await apiFetch(
           "http://localhost:8000/products/?limit=6&sort=name_asc"
         );
 

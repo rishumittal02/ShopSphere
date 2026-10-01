@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import Link from "next/link";
+import { apiFetch } from "../../utils/api";
 
 export default function RegisterPage() {
   const [formData, setFormData] = useState({
@@ -36,7 +37,7 @@ export default function RegisterPage() {
       setError("");
       setSuccess("");
 
-      const response = await fetch(
+      const response = await apiFetch(
         "http://localhost:8000/auth/register",
         {
           method: "POST",
