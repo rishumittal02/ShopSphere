@@ -6,7 +6,10 @@ from dotenv import load_dotenv
 load_dotenv()
 
 
-SECRET_KEY = os.getenv("SECRET_KEY")
+SECRET_KEY = os.getenv(
+    "SECRET_KEY",
+    "807ae2a2a46b3fef2a3fd3843584db83a2a8389f6335c86ef3a868abb642f27c"
+)
 
 ALGORITHM = os.getenv(
     "ALGORITHM",

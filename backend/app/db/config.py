@@ -4,7 +4,12 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-DATABASE_URL = os.getenv("DATABASE_URL")
+DATABASE_URL = (
+    os.getenv("DATABASE_URL")
+    or os.getenv("MYSQL_URL")
+    or os.getenv("MYSQLDATABASEURL")
+    or os.getenv("MYSQL_URL_PRIVATE")
+)
 
 if not DATABASE_URL:
     user = os.getenv("DB_USER", "root")
