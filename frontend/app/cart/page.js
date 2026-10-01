@@ -302,7 +302,12 @@ export default function CartPage() {
   }
 
   const items = cart?.items || [];
-  const rawTotal = Number(cart?.total_amount || 0);
+  const calculatedTotal = items.reduce((sum, item) => {
+    const p = Number(item.product?.price ?? item.price ?? 0);
+    const q = Number(item.quantity || 1);
+    return sum + (isNaN(p) ? 0 : p * q);
+  }, 0);
+  const rawTotal = Number(cart?.total_amount) > 0 ? Number(cart.total_amount) : calculatedTotal;
   const discountAmount = rawTotal * promoDiscount;
   const finalTotal = Math.max(0, rawTotal - discountAmount);
 
@@ -360,7 +365,13 @@ export default function CartPage() {
                 </h2>
 
                 {items.map((item) => {
-                  const imageUrl = getProductImage({ name: item.product_name, category: item.category_name });
+                  const productName = item.product?.name || item.product_name || "Product";
+                  const unitPrice = Number(item.product?.price ?? item.price ?? 0);
+                  const safeUnitPrice = isNaN(unitPrice) ? 0 : unitPrice;
+                  const categoryName = item.product?.category?.name || item.category_name || "General";
+                  const itemQuantity = Number(item.quantity || 1);
+                  const itemSubtotal = safeUnitPrice * itemQuantity;
+                  const imageUrl = getProductImage({ name: productName, category: categoryName });
                   return (
                     <div
                       key={item.id}
@@ -372,22 +383,22 @@ export default function CartPage() {
                           {/* eslint-disable-next-line @next/next/no-img-element */}
                           <img
                             src={imageUrl}
-                            alt={item.product_name}
+                            alt={productName}
                             className="h-full w-full object-cover"
                           />
                         </div>
 
                         <div>
                           <span className="text-[10px] font-bold uppercase tracking-wider text-blue-400">
-                            {item.category_name || "General"}
+                            {categoryName}
                           </span>
                           <Link href={`/products/${item.product_id}`} className="block">
                             <h3 className="text-sm font-bold text-white hover:text-blue-400 transition line-clamp-1">
-                              {item.product_name}
+                              {productName}
                             </h3>
                           </Link>
                           <p className="text-xs text-gray-400 mt-0.5">
-                            ₹{Number(item.price).toLocaleString("en-IN", { minimumFractionDigits: 2 })} each
+                            ₹{safeUnitPrice.toLocaleString("en-IN", { minimumFractionDigits: 2 })} each
                           </p>
                         </div>
                       </div>
@@ -397,18 +408,18 @@ export default function CartPage() {
                         <div className="flex items-center rounded-xl border border-gray-800 bg-gray-950 p-1">
                           <button
                             type="button"
-                            onClick={() => updateQuantity(item.product_id, item.quantity - 1)}
-                            disabled={item.quantity <= 1 || updatingId === item.product_id}
+                            onClick={() => updateQuantity(item.product_id, itemQuantity - 1)}
+                            disabled={itemQuantity <= 1 || updatingId === item.product_id}
                             className="h-7 w-7 rounded-lg bg-gray-900 text-xs font-bold text-white hover:bg-gray-800 disabled:opacity-40"
                           >
                             −
                           </button>
                           <span className="w-9 text-center text-xs font-bold text-white">
-                            {updatingId === item.product_id ? "..." : item.quantity}
+                            {updatingId === item.product_id ? "..." : itemQuantity}
                           </span>
                           <button
                             type="button"
-                            onClick={() => updateQuantity(item.product_id, item.quantity + 1)}
+                            onClick={() => updateQuantity(item.product_id, itemQuantity + 1)}
                             disabled={updatingId === item.product_id}
                             className="h-7 w-7 rounded-lg bg-gray-900 text-xs font-bold text-white hover:bg-gray-800 disabled:opacity-40"
                           >
@@ -418,7 +429,7 @@ export default function CartPage() {
 
                         <div className="text-right">
                           <span className="text-sm font-black text-white">
-                            ₹{Number(item.subtotal).toLocaleString("en-IN", { minimumFractionDigits: 2 })}
+                            ₹{itemSubtotal.toLocaleString("en-IN", { minimumFractionDigits: 2 })}
                           </span>
                           <button
                             onClick={() => removeItem(item.product_id)}

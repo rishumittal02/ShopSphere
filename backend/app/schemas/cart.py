@@ -42,6 +42,7 @@ class CartResponse(BaseModel):
     id: int
     user_id: int
     items: list[CartItemResponse]
+    total_amount: float = 0.0
 
     model_config = ConfigDict(
         from_attributes=True

@@ -24,6 +24,17 @@ class Cart(Base):
         cascade="all, delete-orphan"
     )
 
+    @property
+    def total_amount(self) -> float:
+        if not self.items:
+            return 0.0
+        return float(
+            sum(
+                (float(item.product.price) if item.product and item.product.price is not None else 0.0) * item.quantity
+                for item in self.items
+            )
+        )
+
 
 class CartItem(Base):
     __tablename__ = "cart_items"
