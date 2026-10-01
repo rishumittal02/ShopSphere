@@ -11,6 +11,8 @@ from app.db.config import DATABASE_URL
 
 # this is the Alembic Config object, which provides
 # access to the values within the .ini file in use.
+config = context.config
+
 db_url_str = (
     DATABASE_URL.render_as_string(hide_password=False)
     if hasattr(DATABASE_URL, "render_as_string")
