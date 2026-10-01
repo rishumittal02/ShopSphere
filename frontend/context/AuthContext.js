@@ -7,6 +7,7 @@ import {
   useState,
   useCallback,
 } from "react";
+import { apiFetch } from "../utils/api";
 
 const AuthContext = createContext(null);
 
@@ -24,14 +25,9 @@ export function AuthProvider({ children }) {
     }
 
     try {
-      const response = await fetch("http://localhost:8000/auth/me", {
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
-      });
+      const response = await apiFetch("http://localhost:8000/auth/me");
 
       if (!response.ok) {
-        localStorage.removeItem("access_token");
         setUser(null);
         return null;
       }
@@ -62,14 +58,9 @@ export function AuthProvider({ children }) {
       }
 
       try {
-        const response = await fetch("http://localhost:8000/auth/me", {
-          headers: {
-            Authorization: `Bearer ${token}`,
-          },
-        });
+        const response = await apiFetch("http://localhost:8000/auth/me");
 
         if (!response.ok) {
-          localStorage.removeItem("access_token");
           if (isMounted) setUser(null);
           return;
         }
