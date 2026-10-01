@@ -1,20 +1,17 @@
 import os
+import urllib.parse
 from dotenv import load_dotenv
-from sqlalchemy.engine import URL, make_url
 
 load_dotenv()
 
-raw_url = os.getenv("DATABASE_URL")
-if raw_url:
-    if raw_url.startswith("mysql://"):
-        raw_url = raw_url.replace("mysql://", "mysql+pymysql://", 1)
-    DATABASE_URL = make_url(raw_url)
-else:
-    DATABASE_URL = URL.create(
-        drivername="mysql+pymysql",
-        username=os.getenv("DB_USER", "root"),
-        password=os.getenv("DB_PASS", ""),
-        host=os.getenv("DB_HOST", "localhost"),
-        port=int(os.getenv("DB_PORT", "3306")),
-        database=os.getenv("DB_NAME", "shopsphere")
-    )
+DATABASE_URL = os.getenv("DATABASE_URL")
+
+if not DATABASE_URL:
+    user = os.getenv("DB_USER", "root")
+    password = urllib.parse.quote_plus(os.getenv("DB_PASS", ""))
+    host = os.getenv("DB_HOST", "localhost")
+    port = os.getenv("DB_PORT", "3306")
+    db_name = os.getenv("DB_NAME", "shopsphere")
+    DATABASE_URL = f"mysql+pymysql://{user}:{password}@{host}:{port}/{db_name}"
+elif DATABASE_URL.startswith("mysql://"):
+    DATABASE_URL = DATABASE_URL.replace("mysql://", "mysql+pymysql://", 1)
