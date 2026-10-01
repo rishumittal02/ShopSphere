@@ -18,8 +18,9 @@ app = FastAPI(title="ShopSphere API")
 
 app.add_exception_handler(Exception, global_exception_handler)
 
-allowed_origins = list(dict.fromkeys([
-    FRONTEND_URL,
+frontend_origins = [url.strip() for url in (FRONTEND_URL or "").split(",") if url.strip()]
+
+allowed_origins = list(dict.fromkeys(frontend_origins + [
     "http://localhost:3000",
     "http://127.0.0.1:3000",
 ]))
@@ -27,6 +28,7 @@ allowed_origins = list(dict.fromkeys([
 app.add_middleware(
     CORSMiddleware,
     allow_origins=allowed_origins,
+    allow_origin_regex=r"https://.*\.vercel\.app",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
