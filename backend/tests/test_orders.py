@@ -25,6 +25,7 @@ def test_checkout_success(client, normal_user_token, sample_product, db_session)
     assert response.status_code == 200
     order = response.json()
     assert order["status"] == "pending"
+    assert order.get("payment_method") == "UPI"
     assert len(order["items"]) == 1
     assert order["items"][0]["product_id"] == sample_product.id
     assert order["items"][0]["quantity"] == buy_quantity
@@ -39,6 +40,22 @@ def test_checkout_success(client, normal_user_token, sample_product, db_session)
     # Verify cart cleanup
     cart_res = client.get("/cart/", headers=headers)
     assert len(cart_res.json()["items"]) == 0
+
+
+def test_checkout_with_custom_payment_method(client, normal_user_token, sample_product):
+    headers = {"Authorization": f"Bearer {normal_user_token}"}
+    client.post(
+        "/cart/items",
+        json={"product_id": sample_product.id, "quantity": 1},
+        headers=headers,
+    )
+    response = client.post(
+        "/orders/checkout",
+        json={"payment_method": "Credit / Debit Card"},
+        headers=headers,
+    )
+    assert response.status_code == 200
+    assert response.json()["payment_method"] == "Credit / Debit Card"
 
 
 def test_checkout_insufficient_stock_rollback(

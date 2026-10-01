@@ -29,11 +29,16 @@ class OrderItemResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
+class CheckoutRequest(BaseModel):
+    payment_method: str | None = "UPI"
+
+
 class OrderResponse(BaseModel):
     id: int
     user_id: int
     total_amount: Decimal
     status: str
+    payment_method: str | None = "UPI"
     created_at: datetime
 
     user: OrderUserResponse

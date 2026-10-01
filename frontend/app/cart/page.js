@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { apiFetch } from "../../utils/api";
 import { getProductImage } from "../../utils/productImages";
+import { getSavedCards, getSavedUPIs, setOrderPaymentMeta } from "../../utils/paymentMethods";
 
 const PAYMENT_METHODS = [
   {
@@ -44,6 +45,14 @@ const PAYMENT_METHODS = [
   },
 ];
 
+const POPULAR_BANKS = [
+  { id: "hdfc", name: "HDFC Bank", logo: "🏛️" },
+  { id: "icici", name: "ICICI Bank", logo: "🏦" },
+  { id: "sbi", name: "State Bank of India", logo: "🏢" },
+  { id: "axis", name: "Axis Bank", logo: "🏪" },
+  { id: "kotak", name: "Kotak Mahindra", logo: "🏛️" },
+];
+
 export default function CartPage() {
   const router = useRouter();
 
@@ -59,8 +68,26 @@ export default function CartPage() {
   // Payment method selection
   const [selectedPayment, setSelectedPayment] = useState("upi");
   const [upiId, setUpiId] = useState("user@okhdfcbank");
-  const [cardNumber, setCardNumber] = useState("•••• •••• •••• 4242");
-  const [orderConfirmed, setOrderConfirmed] = useState(false);
+  const [cardNumber, setCardNumber] = useState("4532 •••• •••• 8912");
+  const [cardHolder, setCardHolder] = useState("Rishu Mittal");
+  const [cardExpiry, setCardExpiry] = useState("12/28");
+  const [cardCvv, setCardCvv] = useState("842");
+  const [selectedBank, setSelectedBank] = useState("hdfc");
+  const [selectedEmiMonths, setSelectedEmiMonths] = useState(6);
+
+  // Payment Gateway Modal State
+  const [showPaymentGateway, setShowPaymentGateway] = useState(false);
+  const [gatewayStep, setGatewayStep] = useState("input"); // 'input', 'processing', 'success'
+  const [transactionId, setTransactionId] = useState("");
+
+  // Saved Payment Methods from Profile
+  const [savedCards, setSavedCards] = useState([]);
+  const [savedUpis, setSavedUpis] = useState([]);
+
+  useEffect(() => {
+    setSavedCards(getSavedCards());
+    setSavedUpis(getSavedUPIs());
+  }, []);
 
   useEffect(() => {
     const fetchCart = async () => {
@@ -105,12 +132,24 @@ export default function CartPage() {
     }
   };
 
-  const checkout = async () => {
-    if (checkingOut) return;
+  const openPaymentModal = () => {
+    const txn = "TXN_SPHERE_" + Math.floor(100000000 + Math.random() * 900000000);
+    setTransactionId(txn);
+    setGatewayStep("input");
+    setShowPaymentGateway(true);
+  };
 
+  const processPaymentAndCheckout = async () => {
     try {
+      setGatewayStep("processing");
       setCheckingOut(true);
       setError("");
+
+      // Simulate bank network authorization
+      await new Promise((resolve) => setTimeout(resolve, 1400));
+
+      const selectedMethodObj = PAYMENT_METHODS.find((p) => p.id === selectedPayment);
+      const chosenMethodTitle = selectedMethodObj?.title || "UPI";
 
       const response = await apiFetch(
         "http://localhost:8000/orders/checkout",
@@ -119,6 +158,9 @@ export default function CartPage() {
           headers: {
             "Content-Type": "application/json",
           },
+          body: JSON.stringify({
+            payment_method: chosenMethodTitle,
+          }),
         }
       );
 
@@ -128,12 +170,29 @@ export default function CartPage() {
         throw new Error(data.detail || "Checkout failed");
       }
 
-      setOrderConfirmed(true);
+      // Save payment meta for orders view
+      setOrderPaymentMeta(data.id, {
+        method: chosenMethodTitle,
+        id: selectedPayment,
+        txnId: transactionId || `TXN_${Date.now()}`,
+        date: new Date().toISOString(),
+      });
+
+      if (typeof window !== "undefined") {
+        localStorage.setItem("last_payment_method", chosenMethodTitle);
+        localStorage.setItem("last_payment_id", selectedPayment);
+        localStorage.setItem("last_txn_id", transactionId || `TXN_${Date.now()}`);
+      }
+
+      setGatewayStep("success");
+
       setTimeout(() => {
+        setShowPaymentGateway(false);
         router.push("/orders");
-      }, 1500);
+      }, 1800);
     } catch (err) {
       setError(err.message);
+      setGatewayStep("input");
       setCheckingOut(false);
     }
   };
@@ -274,12 +333,6 @@ export default function CartPage() {
           </div>
         )}
 
-        {orderConfirmed && (
-          <div className="mb-6 rounded-2xl border border-emerald-500/30 bg-emerald-950/40 p-5 text-center text-sm font-bold text-emerald-300 shadow-xl">
-            🎉 Order Confirmed! Payment authorized via {PAYMENT_METHODS.find(p => p.id === selectedPayment)?.title}. Redirecting to your Orders...
-          </div>
-        )}
-
         {/* Empty Cart UI */}
         {items.length === 0 ? (
           <div className="rounded-3xl border border-gray-800 bg-gray-900/40 p-12 text-center max-w-lg mx-auto backdrop-blur-md">
@@ -381,12 +434,12 @@ export default function CartPage() {
                 })}
               </div>
 
-              {/* PAYMENT METHOD SELECTION */}
+              {/* PAYMENT METHOD SELECTION ACCORDION */}
               <div className="rounded-3xl border border-gray-800/80 bg-gray-900/60 p-6 backdrop-blur-md space-y-4">
                 <div className="flex items-center justify-between border-b border-gray-800 pb-3">
                   <div>
-                    <h2 className="text-base font-bold text-white">Select Payment Method</h2>
-                    <p className="text-xs text-gray-400">All transactions are encrypted with 256-bit bank grade security</p>
+                    <h2 className="text-base font-bold text-white">Select Preferred Payment Method</h2>
+                    <p className="text-xs text-gray-400">All transactions are secured with 256-bit bank encryption</p>
                   </div>
                   <span className="text-emerald-400 text-xs font-bold">🔒 PCI-DSS Certified</span>
                 </div>
@@ -429,40 +482,168 @@ export default function CartPage() {
 
                         {/* Interactive Sub-inputs for selected payment method */}
                         {isSelected && method.id === "upi" && (
-                          <div className="mt-3 pt-3 border-t border-gray-800/80 flex flex-col sm:flex-row items-center gap-2 text-xs">
-                            <input
-                              type="text"
-                              value={upiId}
-                              onChange={(e) => setUpiId(e.target.value)}
-                              placeholder="Enter UPI ID (e.g. mobile@upi)"
-                              className="w-full sm:w-64 rounded-xl border border-gray-800 bg-gray-900 px-3 py-1.5 text-white outline-none focus:border-blue-500 font-mono text-xs"
-                            />
-                            <span className="text-emerald-400 text-[11px] font-semibold">✓ Verified UPI ID</span>
+                          <div className="mt-3 pt-3 border-t border-gray-800/80 space-y-2.5 text-xs">
+                            {savedUpis.length > 0 && (
+                              <div>
+                                <span className="text-[10px] uppercase font-bold text-gray-400 block mb-1.5">
+                                  Saved UPI Handles:
+                                </span>
+                                <div className="flex flex-wrap gap-2">
+                                  {savedUpis.map((u) => (
+                                    <button
+                                      key={u.id}
+                                      type="button"
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        setUpiId(u.vpa);
+                                      }}
+                                      className={`rounded-xl px-2.5 py-1 text-[11px] font-bold border transition flex items-center gap-1.5 ${
+                                        upiId === u.vpa
+                                          ? "border-emerald-500 bg-emerald-950/40 text-emerald-300 shadow-sm"
+                                          : "border-gray-800 bg-gray-900/80 text-gray-300 hover:text-white"
+                                      }`}
+                                    >
+                                      <span>{u.icon}</span>
+                                      <span>{u.vpa}</span>
+                                      {u.isDefault && (
+                                        <span className="text-[9px] bg-emerald-500/20 text-emerald-400 px-1 rounded">Default</span>
+                                      )}
+                                    </button>
+                                  ))}
+                                </div>
+                              </div>
+                            )}
+
+                            <div className="flex flex-col sm:flex-row items-center gap-3">
+                              <input
+                                type="text"
+                                value={upiId}
+                                onChange={(e) => setUpiId(e.target.value)}
+                                placeholder="Enter UPI ID (e.g. mobile@upi)"
+                                className="w-full sm:w-64 rounded-xl border border-gray-800 bg-gray-900 px-3 py-1.5 text-white outline-none focus:border-blue-500 font-mono text-xs"
+                              />
+                              <div className="flex items-center gap-2 text-[11px] text-emerald-400 font-medium">
+                                <span>✓ GPay / PhonePe / Paytm Supported</span>
+                              </div>
+                            </div>
                           </div>
                         )}
 
                         {isSelected && method.id === "card" && (
-                          <div className="mt-3 pt-3 border-t border-gray-800/80 grid grid-cols-2 sm:grid-cols-3 gap-2 text-xs">
+                          <div className="mt-3 pt-3 border-t border-gray-800/80 space-y-2.5 text-xs">
+                            {savedCards.length > 0 && (
+                              <div>
+                                <span className="text-[10px] uppercase font-bold text-gray-400 block mb-1.5">
+                                  Saved Cards (1-Click Select):
+                                </span>
+                                <div className="flex flex-wrap gap-2">
+                                  {savedCards.map((c) => (
+                                    <button
+                                      key={c.id}
+                                      type="button"
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        setCardNumber(`•••• •••• •••• ${c.last4}`);
+                                        setCardExpiry(c.expiry);
+                                        setCardHolder(c.holderName);
+                                      }}
+                                      className="rounded-xl px-3 py-1.5 text-[11px] font-bold border border-gray-800 bg-gray-900/80 text-gray-300 hover:text-white hover:border-gray-700 transition flex items-center gap-2"
+                                    >
+                                      <span className="uppercase text-amber-400 font-mono">{c.brand}</span>
+                                      <span>{c.bank} •••• {c.last4}</span>
+                                      {c.isDefault && (
+                                        <span className="text-[9px] bg-blue-500/20 text-blue-400 px-1 rounded">Primary</span>
+                                      )}
+                                    </button>
+                                  ))}
+                                </div>
+                              </div>
+                            )}
+
+                            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                              <input
+                                type="text"
+                                value={cardNumber}
+                                onChange={(e) => setCardNumber(e.target.value)}
+                                placeholder="16-Digit Card Number"
+                                className="col-span-2 rounded-xl border border-gray-800 bg-gray-900 px-3 py-1.5 text-white outline-none focus:border-blue-500 font-mono text-xs"
+                              />
+                              <input
+                                type="text"
+                                value={cardExpiry}
+                                onChange={(e) => setCardExpiry(e.target.value)}
+                                placeholder="MM/YY"
+                                className="rounded-xl border border-gray-800 bg-gray-900 px-3 py-1.5 text-white outline-none focus:border-blue-500 text-xs"
+                              />
+                              <input
+                                type="password"
+                                maxLength={3}
+                                value={cardCvv}
+                                onChange={(e) => setCardCvv(e.target.value)}
+                                placeholder="CVV"
+                                className="rounded-xl border border-gray-800 bg-gray-900 px-3 py-1.5 text-white outline-none focus:border-blue-500 font-mono text-xs"
+                              />
+                            </div>
                             <input
                               type="text"
-                              value={cardNumber}
-                              onChange={(e) => setCardNumber(e.target.value)}
-                              placeholder="Card Number"
-                              className="col-span-2 rounded-xl border border-gray-800 bg-gray-900 px-3 py-1.5 text-white outline-none focus:border-blue-500 font-mono text-xs"
+                              value={cardHolder}
+                              onChange={(e) => setCardHolder(e.target.value)}
+                              placeholder="Cardholder Name as on Card"
+                              className="w-full rounded-xl border border-gray-800 bg-gray-900 px-3 py-1.5 text-white outline-none focus:border-blue-500 text-xs"
                             />
-                            <input
-                              type="text"
-                              placeholder="MM/YY"
-                              defaultValue="12/28"
-                              className="rounded-xl border border-gray-800 bg-gray-900 px-3 py-1.5 text-white outline-none focus:border-blue-500 text-xs"
-                            />
+                          </div>
+                        )}
+
+                        {isSelected && method.id === "netbanking" && (
+                          <div className="mt-3 pt-3 border-t border-gray-800/80 grid grid-cols-2 sm:grid-cols-3 gap-2">
+                            {POPULAR_BANKS.map((bank) => (
+                              <button
+                                key={bank.id}
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setSelectedBank(bank.id);
+                                }}
+                                className={`rounded-xl border p-2 text-left text-xs transition flex items-center gap-2 ${
+                                  selectedBank === bank.id
+                                    ? "border-blue-500 bg-blue-900/30 text-white font-bold"
+                                    : "border-gray-800 bg-gray-900/60 text-gray-400 hover:text-white"
+                                }`}
+                              >
+                                <span>{bank.logo}</span>
+                                <span>{bank.name}</span>
+                              </button>
+                            ))}
                           </div>
                         )}
 
                         {isSelected && method.id === "cod" && (
                           <p className="mt-2 text-[11px] text-emerald-400">
-                            ✓ Cash on Delivery active. Please keep exact cash or UPI QR scanner ready at the time of delivery.
+                            ✓ Pay at doorstep active. Delivery executive carries UPI QR code scanner as well.
                           </p>
+                        )}
+
+                        {isSelected && method.id === "emi" && (
+                          <div className="mt-3 pt-3 border-t border-gray-800/80 flex items-center gap-2 text-xs">
+                            <span className="text-gray-400">Tenure:</span>
+                            {[3, 6, 9, 12].map((months) => (
+                              <button
+                                key={months}
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setSelectedEmiMonths(months);
+                                }}
+                                className={`rounded-lg px-2.5 py-1 text-xs font-semibold ${
+                                  selectedEmiMonths === months
+                                    ? "bg-blue-600 text-white"
+                                    : "bg-gray-800 text-gray-400"
+                                }`}
+                              >
+                                {months} Months (₹{Math.round(finalTotal / months).toLocaleString("en-IN")}/mo)
+                              </button>
+                            ))}
+                          </div>
                         )}
                       </div>
                     );
@@ -505,10 +686,10 @@ export default function CartPage() {
                     <span className="text-gray-500">Included</span>
                   </div>
 
-                  <div className="flex justify-between pt-1 text-blue-400">
-                    <span>Payment Method</span>
+                  <div className="flex justify-between pt-1 text-blue-400 border-t border-gray-800/60">
+                    <span>Selected Payment</span>
                     <span className="font-semibold capitalize">
-                      {PAYMENT_METHODS.find(p => p.id === selectedPayment)?.title}
+                      {PAYMENT_METHODS.find((p) => p.id === selectedPayment)?.title}
                     </span>
                   </div>
                 </div>
@@ -553,18 +734,11 @@ export default function CartPage() {
 
                 {/* Checkout CTA Button */}
                 <button
-                  onClick={checkout}
+                  onClick={openPaymentModal}
                   disabled={checkingOut || items.length === 0}
                   className="w-full rounded-2xl bg-gradient-to-r from-blue-600 to-indigo-600 py-3.5 text-xs font-bold text-white shadow-xl shadow-blue-500/25 transition-all hover:from-blue-500 hover:to-indigo-500 active:scale-98 disabled:opacity-40 disabled:cursor-not-allowed"
                 >
-                  {checkingOut ? (
-                    <span className="inline-flex items-center gap-2">
-                      <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-white border-t-transparent" />
-                      Authorizing Payment...
-                    </span>
-                  ) : (
-                    `⚡ Pay ₹${finalTotal.toLocaleString("en-IN", { minimumFractionDigits: 2 })} & Place Order`
-                  )}
+                  ⚡ Proceed to Payment (₹{finalTotal.toLocaleString("en-IN", { minimumFractionDigits: 2 })})
                 </button>
 
                 <div className="flex items-center justify-center gap-2 text-[11px] text-gray-500 pt-2">
@@ -573,6 +747,171 @@ export default function CartPage() {
                   <span>7-Day Return Policy</span>
                 </div>
               </div>
+            </div>
+          </div>
+        )}
+
+        {/* INTERACTIVE PAYMENT GATEWAY MODAL */}
+        {showPaymentGateway && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-md p-4 animate-in fade-in">
+            <div className="w-full max-w-md rounded-3xl border border-gray-800 bg-gray-900 p-6 sm:p-8 shadow-2xl space-y-6">
+              {gatewayStep === "input" && (
+                <>
+                  <div className="flex items-center justify-between border-b border-gray-800 pb-4">
+                    <div className="flex items-center gap-2.5">
+                      <div className="h-8 w-8 rounded-xl bg-blue-600 flex items-center justify-center font-bold text-white text-sm">
+                        S
+                      </div>
+                      <div>
+                        <h3 className="text-sm font-black text-white">ShopSphere Payment Gateway</h3>
+                        <p className="text-[10px] text-gray-400">Merchant ID: SPHERE_MCH_84102</p>
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setShowPaymentGateway(false)}
+                      className="text-gray-400 hover:text-white text-sm font-bold"
+                    >
+                      ✕
+                    </button>
+                  </div>
+
+                  {/* Amount to pay */}
+                  <div className="rounded-2xl border border-gray-800 bg-gray-950 p-4 text-center">
+                    <span className="text-[11px] text-gray-400 uppercase tracking-wider block">Total Payable Amount</span>
+                    <span className="text-3xl font-black text-white mt-1 block">
+                      ₹{finalTotal.toLocaleString("en-IN", { minimumFractionDigits: 2 })}
+                    </span>
+                    <span className="text-[10px] text-emerald-400 font-medium">Free Express Delivery Included</span>
+                  </div>
+
+                  {/* Payment Details based on selection */}
+                  {selectedPayment === "upi" && (
+                    <div className="space-y-3 text-center">
+                      <p className="text-xs font-semibold text-gray-300">Scan QR Code or Approve on your UPI App</p>
+                      <div className="mx-auto h-40 w-40 rounded-2xl border-2 border-dashed border-gray-700 bg-white p-3 flex flex-col items-center justify-center shadow-lg">
+                        {/* Mock QR SVG */}
+                        <div className="grid grid-cols-4 gap-1.5 w-full h-full p-2 bg-gray-950 rounded-lg">
+                          {[...Array(16)].map((_, i) => (
+                            <div
+                              key={i}
+                              className={`rounded-sm ${i % 3 === 0 ? "bg-white" : i % 2 === 0 ? "bg-blue-400" : "bg-transparent"}`}
+                            />
+                          ))}
+                        </div>
+                      </div>
+                      <p className="text-[11px] text-gray-400">
+                        Paying to: <span className="text-white font-mono font-semibold">shopsphere@hdfcbank</span>
+                      </p>
+                      <div className="flex items-center justify-center gap-2 text-xs text-amber-400">
+                        <span>⏱️ Session expires in: 04:59</span>
+                      </div>
+                    </div>
+                  )}
+
+                  {selectedPayment === "card" && (
+                    <div className="space-y-3">
+                      {/* Visual Card Representation */}
+                      <div className="rounded-2xl bg-gradient-to-tr from-slate-900 via-indigo-950 to-blue-900 border border-blue-500/30 p-4 shadow-xl text-white">
+                        <div className="flex justify-between items-center mb-4">
+                          <span className="text-xs font-mono tracking-widest text-blue-300">ShopSphere Secure Pay</span>
+                          <span className="font-bold text-amber-400 text-xs">VISA</span>
+                        </div>
+                        <p className="font-mono text-base tracking-widest mb-3">{cardNumber}</p>
+                        <div className="flex justify-between text-[11px] text-gray-300">
+                          <div>
+                            <span className="text-[9px] text-gray-400 block uppercase">Card Holder</span>
+                            <span className="font-semibold">{cardHolder}</span>
+                          </div>
+                          <div>
+                            <span className="text-[9px] text-gray-400 block uppercase">Expires</span>
+                            <span className="font-semibold font-mono">{cardExpiry}</span>
+                          </div>
+                        </div>
+                      </div>
+                      <p className="text-[11px] text-gray-400 text-center">
+                        Zero-Cost EMI & Bank Offers automatically applied
+                      </p>
+                    </div>
+                  )}
+
+                  {selectedPayment === "netbanking" && (
+                    <div className="rounded-2xl border border-gray-800 bg-gray-950 p-4 space-y-2 text-xs">
+                      <p className="text-gray-300 font-semibold">Selected Bank:</p>
+                      <div className="flex items-center gap-3 text-white font-bold">
+                        <span className="text-xl">🏛️</span>
+                        <span>{POPULAR_BANKS.find(b => b.id === selectedBank)?.name}</span>
+                      </div>
+                      <p className="text-[11px] text-gray-400 pt-1">
+                        You will be securely routed through your bank&apos;s two-factor authentication portal.
+                      </p>
+                    </div>
+                  )}
+
+                  {selectedPayment === "cod" && (
+                    <div className="rounded-2xl border border-gray-800 bg-gray-950 p-4 text-center space-y-1.5">
+                      <span className="text-3xl block">💵</span>
+                      <strong className="text-xs font-bold text-white block">Cash on Delivery Verified</strong>
+                      <p className="text-[11px] text-gray-400">
+                        Order will be dispatched immediately. Keep exact cash or UPI ready at the time of delivery.
+                      </p>
+                    </div>
+                  )}
+
+                  {selectedPayment === "emi" && (
+                    <div className="rounded-2xl border border-gray-800 bg-gray-950 p-4 text-center space-y-1 text-xs">
+                      <strong className="text-white block font-bold">
+                        {selectedEmiMonths}-Month Zero Cost EMI
+                      </strong>
+                      <p className="text-blue-400 font-mono font-bold text-sm">
+                        ₹{Math.round(finalTotal / selectedEmiMonths).toLocaleString("en-IN")}/month
+                      </p>
+                      <p className="text-[10px] text-gray-400">
+                        No processing fee. First installment charged on next billing cycle.
+                      </p>
+                    </div>
+                  )}
+
+                  {/* Actions */}
+                  <div className="space-y-2 pt-2">
+                    <button
+                      type="button"
+                      onClick={processPaymentAndCheckout}
+                      className="w-full rounded-2xl bg-gradient-to-r from-blue-600 to-indigo-600 py-3.5 text-xs font-bold text-white shadow-xl shadow-blue-500/25 hover:from-blue-500 hover:to-indigo-500 transition active:scale-98"
+                    >
+                      Authorize & Complete Payment (₹{finalTotal.toLocaleString("en-IN", { minimumFractionDigits: 2 })})
+                    </button>
+                    <p className="text-[10px] text-gray-500 text-center">
+                      🔒 End-to-end 256-bit encrypted • Tokenized credentials
+                    </p>
+                  </div>
+                </>
+              )}
+
+              {gatewayStep === "processing" && (
+                <div className="py-12 text-center space-y-4">
+                  <div className="inline-block h-12 w-12 animate-spin rounded-full border-4 border-blue-500 border-t-transparent" />
+                  <h4 className="text-base font-bold text-white">Authorizing Payment...</h4>
+                  <p className="text-xs text-gray-400 max-w-xs mx-auto">
+                    Please do not close or refresh this window while we verify your transaction with the bank network.
+                  </p>
+                </div>
+              )}
+
+              {gatewayStep === "success" && (
+                <div className="py-10 text-center space-y-3">
+                  <div className="mx-auto h-14 w-14 rounded-full bg-emerald-500/20 border border-emerald-500 flex items-center justify-center text-emerald-400 text-2xl font-bold animate-bounce">
+                    ✓
+                  </div>
+                  <h4 className="text-xl font-black text-white">Payment Successful!</h4>
+                  <p className="text-xs text-emerald-400 font-semibold font-mono">
+                    Ref ID: {transactionId}
+                  </p>
+                  <p className="text-xs text-gray-400">
+                    Your order has been confirmed and forwarded for immediate packing and dispatch. Redirecting...
+                  </p>
+                </div>
+              )}
             </div>
           </div>
         )}

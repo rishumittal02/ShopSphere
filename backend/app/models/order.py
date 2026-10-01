@@ -31,6 +31,12 @@ class Order(Base):
         default="pending"
     )
 
+    payment_method = Column(
+        String(50),
+        nullable=True,
+        default="UPI"
+    )
+
     created_at = Column(
         DateTime,
         nullable=False,

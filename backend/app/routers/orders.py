@@ -1,4 +1,5 @@
-from fastapi import APIRouter, Depends, HTTPException
+from typing import Optional
+from fastapi import APIRouter, Depends, HTTPException, Body
 from sqlalchemy.orm import Session, joinedload
 
 from app.db.dependencies import get_db
@@ -9,7 +10,7 @@ from app.models.cart import Cart, CartItem
 from app.models.product import Product
 from app.models.order import Order, OrderItem
 
-from app.schemas.order import OrderResponse
+from app.schemas.order import OrderResponse, CheckoutRequest
 
 
 router = APIRouter(
@@ -24,9 +25,11 @@ router = APIRouter(
 
 @router.post("/checkout", response_model=OrderResponse)
 def checkout(
+    payload: Optional[CheckoutRequest] = Body(default=None),
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
+    payment_method = payload.payment_method if (payload and payload.payment_method) else "UPI"
     try:
         cart = (
             db.query(Cart)
@@ -86,7 +89,8 @@ def checkout(
         new_order = Order(
             user_id=current_user.id,
             total_amount=total_amount,
-            status="pending"
+            status="pending",
+            payment_method=payment_method
         )
 
         db.add(new_order)
