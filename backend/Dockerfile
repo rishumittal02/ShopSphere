@@ -24,6 +24,7 @@ COPY alembic.ini .
 COPY alembic/ ./alembic/
 COPY app/ ./app/
 COPY seed_data.py .
+COPY wait_for_db.py .
 COPY start.sh .
 RUN chmod +x start.sh
 

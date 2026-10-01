@@ -1,6 +1,9 @@
 #!/bin/sh
 set -e
 
+echo "Waiting for database connection..."
+python wait_for_db.py
+
 echo "Applying database migrations..."
 alembic upgrade head
 
