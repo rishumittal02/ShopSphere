@@ -1,19 +1,26 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect, Suspense } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { apiFetch } from "../../utils/api";
 import { useAuth } from "../../context/AuthContext";
 
-export default function RegisterPage() {
+function RegisterContent() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const { login } = useAuth();
 
-  const [step, setStep] = useState(1); // 1 = register form, 2 = email verification
+  const initialEmail = searchParams.get("email") || "";
+  const initialStep =
+    searchParams.get("step") === "2" || searchParams.get("verify") === "true"
+      ? 2
+      : 1;
+
+  const [step, setStep] = useState(initialStep); // 1 = register form, 2 = email verification
   const [formData, setFormData] = useState({
     name: "",
-    email: "",
+    email: initialEmail,
     password: "",
   });
 
@@ -346,5 +353,13 @@ export default function RegisterPage() {
         </div>
       </div>
     </main>
+  );
+}
+
+export default function RegisterPage() {
+  return (
+    <Suspense fallback={<div className="min-h-screen bg-gray-950 flex items-center justify-center text-white">Loading...</div>}>
+      <RegisterContent />
+    </Suspense>
   );
 }

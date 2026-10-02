@@ -165,3 +165,37 @@ def test_password_reset_flow(client, normal_user, db_session):
     assert login_res.status_code == 200
     assert "access_token" in login_res.json()
 
+
+def test_reregister_unverified_user_succeeds(client, db_session):
+    from app.models.user import User
+
+    # 1. Register first time
+    payload = {
+        "name": "Unverified Carol",
+        "email": "carol@example.com",
+        "password": "initialpassword123",
+    }
+    res1 = client.post("/auth/register", json=payload)
+    assert res1.status_code == 200
+    user1 = db_session.query(User).filter(User.email == "carol@example.com").first()
+    code1 = user1.verification_code
+
+    # 2. Re-register with same email while unverified
+    payload2 = {
+        "name": "Carol Updated",
+        "email": "carol@example.com",
+        "password": "newpassword12345",
+    }
+    res2 = client.post("/auth/register", json=payload2)
+    assert res2.status_code == 200
+    db_session.refresh(user1)
+    assert user1.name == "Carol Updated"
+    assert user1.verification_code != code1  # Fresh code generated
+
+    # 3. Verify with the new code
+    verify_res = client.post(
+        "/auth/verify-email",
+        json={"email": "carol@example.com", "code": user1.verification_code}
+    )
+    assert verify_res.status_code == 200
+

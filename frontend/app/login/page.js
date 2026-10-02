@@ -164,8 +164,8 @@ export default function LoginPage() {
                 <p>⚠ {error}</p>
                 {isUnverified && (
                   <Link
-                    href={`/register`}
-                    className="inline-block mt-2 font-bold text-blue-400 underline"
+                    href={`/register?email=${encodeURIComponent(formData.email)}&step=2`}
+                    className="inline-block mt-2 font-bold text-blue-400 underline hover:text-blue-300"
                   >
                     Enter 6-Digit Email Verification Code →
                   </Link>

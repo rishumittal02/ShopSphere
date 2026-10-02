@@ -1,7 +1,7 @@
 import random
 import secrets
 from datetime import datetime, timedelta, timezone
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
 from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.orm import Session
 from passlib.context import CryptContext
@@ -53,6 +53,7 @@ def get_my_profile(
 @router.post("/register", response_model=UserResponse)
 def register_user(
     user_data: RegisterRequest,
+    background_tasks: BackgroundTasks,
     db: Session = Depends(get_db)
 ):
     existing_user = (
@@ -62,10 +63,23 @@ def register_user(
     )
 
     if existing_user:
-        raise HTTPException(
-            status_code=400,
-            detail="Email already registered"
-        )
+        if existing_user.is_verified:
+            raise HTTPException(
+                status_code=400,
+                detail="Email already registered"
+            )
+
+        # Unverified user re-registering: update credentials and issue fresh code
+        existing_user.name = user_data.name
+        existing_user.password = pwd_context.hash(user_data.password)
+        code = f"{random.randint(100000, 999999)}"
+        existing_user.verification_code = code
+        existing_user.verification_code_expires_at = datetime.now(timezone.utc) + timedelta(minutes=15)
+        db.commit()
+        db.refresh(existing_user)
+
+        background_tasks.add_task(send_verification_email, existing_user.email, code, existing_user.name)
+        return existing_user
 
     hashed_password = pwd_context.hash(
         user_data.password
@@ -89,11 +103,8 @@ def register_user(
     db.commit()
     db.refresh(new_user)
 
-    # Send verification email
-    try:
-        send_verification_email(new_user, code)
-    except Exception as e:
-        print(f"[AUTH ERROR] Failed sending verification email: {e}")
+    # Send verification email in background
+    background_tasks.add_task(send_verification_email, new_user.email, code, new_user.name)
 
     return new_user
 
@@ -213,6 +224,7 @@ def verify_email(
 @router.post("/resend-verification", response_model=AuthMessageResponse)
 def resend_verification(
     payload: ResendVerificationRequest,
+    background_tasks: BackgroundTasks,
     db: Session = Depends(get_db)
 ):
     user = (
@@ -238,10 +250,7 @@ def resend_verification(
     user.verification_code_expires_at = datetime.now(timezone.utc) + timedelta(minutes=15)
     db.commit()
 
-    try:
-        send_verification_email(user, code)
-    except Exception as e:
-        print(f"[AUTH ERROR] Failed resending verification email: {e}")
+    background_tasks.add_task(send_verification_email, user.email, code, user.name)
 
     return {
         "message": f"A new 6-digit verification code has been dispatched to {user.email}.",
@@ -252,6 +261,7 @@ def resend_verification(
 @router.post("/forgot-password", response_model=AuthMessageResponse)
 def forgot_password(
     payload: ForgotPasswordRequest,
+    background_tasks: BackgroundTasks,
     db: Session = Depends(get_db)
 ):
     user = (
@@ -267,10 +277,7 @@ def forgot_password(
         db.commit()
 
         reset_url = f"{FRONTEND_URL}/reset-password?token={token}"
-        try:
-            send_password_reset_email(user, reset_url)
-        except Exception:
-            pass
+        background_tasks.add_task(send_password_reset_email, user.email, reset_url, user.name)
 
     return {
         "message": "If this email is registered, password reset instructions have been sent to your inbox.",

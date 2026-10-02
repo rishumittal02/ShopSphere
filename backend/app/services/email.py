@@ -45,14 +45,21 @@ def send_email(to_email: str, subject: str, html_content: str, text_content: str
             msg.attach(part2)
 
             if SMTP_PORT == 465:
-                with smtplib.SMTP_SSL(SMTP_HOST, SMTP_PORT, timeout=12) as server:
+                with smtplib.SMTP_SSL(SMTP_HOST, 465, timeout=8) as server:
                     server.login(SMTP_USER, SMTP_PASSWORD)
                     server.sendmail(effective_from, [to_email], msg.as_string())
             else:
-                with smtplib.SMTP(SMTP_HOST, SMTP_PORT, timeout=12) as server:
-                    server.starttls()
-                    server.login(SMTP_USER, SMTP_PASSWORD)
-                    server.sendmail(effective_from, [to_email], msg.as_string())
+                try:
+                    with smtplib.SMTP(SMTP_HOST, SMTP_PORT, timeout=8) as server:
+                        server.starttls()
+                        server.login(SMTP_USER, SMTP_PASSWORD)
+                        server.sendmail(effective_from, [to_email], msg.as_string())
+                except Exception as tls_err:
+                    logger.warning(f"SMTP STARTTLS on port {SMTP_PORT} failed ({tls_err}). Falling back to port 465 SSL...")
+                    print(f"[SHOPSPHERE SMTP] Port {SMTP_PORT} failed ({tls_err}), falling back to 465 SSL...")
+                    with smtplib.SMTP_SSL(SMTP_HOST, 465, timeout=8) as server:
+                        server.login(SMTP_USER, SMTP_PASSWORD)
+                        server.sendmail(effective_from, [to_email], msg.as_string())
 
             logger.info(f"Successfully dispatched real email to {to_email}: {subject}")
             print(f"[SHOPSPHERE EMAIL SENT] Dispatched to {to_email}: {subject}")
@@ -212,8 +219,11 @@ def send_order_cancellation_email(order, user) -> bool:
     return send_email(user.email, subject, html_content, text_content)
 
 
-def send_verification_email(user, code: str) -> bool:
+def send_verification_email(user, code: str, user_name: str = "") -> bool:
     """Sends 6-digit registration verification code."""
+    to_email = getattr(user, "email", user) if not isinstance(user, str) else user
+    name = getattr(user, "name", user_name) if not isinstance(user, str) else (user_name or "Customer")
+
     subject = f"Verify your ShopSphere Account ({code})"
     
     html_content = f"""
@@ -228,7 +238,7 @@ def send_verification_email(user, code: str) -> bool:
             </div>
             
             <div style="padding: 32px 24px; text-align: center;">
-                <h2 style="margin: 0 0 8px; font-size: 20px; color: #0f172a;">Welcome to ShopSphere, {user.name}!</h2>
+                <h2 style="margin: 0 0 8px; font-size: 20px; color: #0f172a;">Welcome to ShopSphere, {name}!</h2>
                 <p style="margin: 0 0 24px; font-size: 14px; color: #475569; line-height: 1.5;">
                     Please enter the following 6-digit verification code to confirm your email address and activate your account:
                 </p>
@@ -253,11 +263,14 @@ def send_verification_email(user, code: str) -> bool:
     </html>
     """
     text_content = f"Welcome to ShopSphere! Your 6-digit verification code is: {code}. It expires in 15 minutes."
-    return send_email(user.email, subject, html_content, text_content)
+    return send_email(to_email, subject, html_content, text_content)
 
 
-def send_password_reset_email(user, reset_url: str) -> bool:
+def send_password_reset_email(user, reset_url: str, user_name: str = "") -> bool:
     """Sends password reset link to user."""
+    to_email = getattr(user, "email", user) if not isinstance(user, str) else user
+    name = getattr(user, "name", user_name) if not isinstance(user, str) else (user_name or "Customer")
+
     subject = "Reset Your ShopSphere Password"
 
     html_content = f"""
@@ -272,7 +285,7 @@ def send_password_reset_email(user, reset_url: str) -> bool:
             </div>
             
             <div style="padding: 32px 24px; text-align: center;">
-                <h2 style="margin: 0 0 12px; font-size: 19px; color: #0f172a;">Hello {user.name},</h2>
+                <h2 style="margin: 0 0 12px; font-size: 19px; color: #0f172a;">Hello {name},</h2>
                 <p style="margin: 0 0 24px; font-size: 14px; color: #475569; line-height: 1.5;">
                     We received a request to reset the password for your ShopSphere account. Click the button below to choose a new password:
                 </p>
