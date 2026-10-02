@@ -49,19 +49,19 @@ def send_email(to_email: str, subject: str, html_content: str, text_content: str
             msg.attach(part2)
 
             if SMTP_PORT == 465:
-                with smtplib.SMTP_SSL(SMTP_HOST, 465, timeout=8) as server:
+                with smtplib.SMTP_SSL(SMTP_HOST, 465, timeout=20) as server:
                     server.login(SMTP_USER, SMTP_PASSWORD)
                     server.sendmail(effective_from, [to_email], msg.as_string())
             else:
                 try:
-                    with smtplib.SMTP(SMTP_HOST, SMTP_PORT, timeout=8) as server:
+                    with smtplib.SMTP(SMTP_HOST, SMTP_PORT, timeout=20) as server:
                         server.starttls()
                         server.login(SMTP_USER, SMTP_PASSWORD)
                         server.sendmail(effective_from, [to_email], msg.as_string())
                 except Exception as tls_err:
                     logger.warning(f"SMTP STARTTLS on port {SMTP_PORT} failed ({tls_err}). Falling back to port 465 SSL...")
                     print(f"[SHOPSPHERE SMTP] Port {SMTP_PORT} failed ({tls_err}), falling back to 465 SSL...")
-                    with smtplib.SMTP_SSL(SMTP_HOST, 465, timeout=8) as server:
+                    with smtplib.SMTP_SSL(SMTP_HOST, 465, timeout=20) as server:
                         server.login(SMTP_USER, SMTP_PASSWORD)
                         server.sendmail(effective_from, [to_email], msg.as_string())
 
@@ -69,8 +69,9 @@ def send_email(to_email: str, subject: str, html_content: str, text_content: str
             print(f"[SHOPSPHERE EMAIL SENT] Dispatched to {to_email}: {subject}")
             return True
         except Exception as e:
-            logger.warning(f"SMTP delivery failed to {to_email} ({e}). Logging email instead.")
+            logger.error(f"SMTP delivery failed to {to_email}: {e}", exc_info=True)
             print(f"[SHOPSPHERE SMTP ERROR] Failed sending to {to_email}: {e}")
+            return False
 
     # Development / Fallback simulated email log
     missing_fields = []

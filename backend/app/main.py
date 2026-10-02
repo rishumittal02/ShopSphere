@@ -53,8 +53,17 @@ def home():
 
 @app.get("/health")
 def health_check():
+    from app.core.config import SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASSWORD, ENVIRONMENT
     return {
         "status": "healthy",
         "service": "ShopSphere API",
-        "version": "1.0.0"
+        "version": "1.0.0",
+        "smtp": {
+            "configured": bool(SMTP_HOST and SMTP_USER and SMTP_PASSWORD),
+            "host": SMTP_HOST or None,
+            "port": SMTP_PORT,
+            "user": SMTP_USER or None,
+            "has_password": bool(SMTP_PASSWORD),
+            "password_len": len(SMTP_PASSWORD) if SMTP_PASSWORD else 0,
+        }
     }
