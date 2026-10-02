@@ -73,8 +73,17 @@ def send_email(to_email: str, subject: str, html_content: str, text_content: str
             print(f"[SHOPSPHERE SMTP ERROR] Failed sending to {to_email}: {e}")
 
     # Development / Fallback simulated email log
+    missing_fields = []
+    if not SMTP_HOST:
+        missing_fields.append("SMTP_HOST")
+    if not SMTP_USER:
+        missing_fields.append("SMTP_USER")
+    if not SMTP_PASSWORD:
+        missing_fields.append("SMTP_PASSWORD")
+    missing_str = ", ".join(missing_fields) if missing_fields else "none (verification failed)"
+
     logger.info("=" * 60)
-    logger.info(f"[SHOPSPHERE EMAIL SIMULATION - SMTP NOT CONFIGURED]")
+    logger.info(f"[SHOPSPHERE EMAIL SIMULATION - SMTP NOT CONFIGURED] (Missing: {missing_str})")
     logger.info(f"To: {to_email}")
     logger.info(f"From: {SMTP_FROM_NAME} <{SMTP_FROM_EMAIL}>")
     logger.info(f"Subject: {subject}")

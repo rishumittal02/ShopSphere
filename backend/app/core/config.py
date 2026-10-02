@@ -37,11 +37,45 @@ FRONTEND_URL = os.getenv(
 )
 
 # Email / SMTP Configuration
-SMTP_HOST = os.getenv("SMTP_HOST", "")
-SMTP_PORT = int(os.getenv("SMTP_PORT", "587"))
-SMTP_USER = os.getenv("SMTP_USER", "")
-SMTP_PASSWORD = os.getenv("SMTP_PASSWORD", "")
-SMTP_FROM_EMAIL = os.getenv("SMTP_FROM_EMAIL", "noreply@shopsphere.in")
+SMTP_USER = (
+    os.getenv("SMTP_USER")
+    or os.getenv("SMTP_USERNAME")
+    or os.getenv("MAIL_USER")
+    or os.getenv("MAIL_USERNAME")
+    or os.getenv("EMAIL_USER")
+    or os.getenv("SMTP_FROM_EMAIL")
+    or ""
+).strip().strip('"').strip("'")
+
+SMTP_HOST = (
+    os.getenv("SMTP_HOST")
+    or os.getenv("MAIL_HOST")
+    or os.getenv("EMAIL_HOST")
+    or ("smtp.gmail.com" if "gmail.com" in SMTP_USER.lower() else "")
+).strip().strip('"').strip("'")
+
+SMTP_PORT = int(os.getenv("SMTP_PORT") or os.getenv("MAIL_PORT") or "587")
+
+SMTP_PASSWORD = (
+    os.getenv("SMTP_PASSWORD")
+    or os.getenv("SMTP_PASS")
+    or os.getenv("MAIL_PASSWORD")
+    or os.getenv("MAIL_PASS")
+    or os.getenv("EMAIL_PASSWORD")
+    or os.getenv("EMAIL_PASS")
+    or os.getenv("GMAIL_APP_PASSWORD")
+    or os.getenv("GMAIL_PASSWORD")
+    or ""
+).strip().strip('"').strip("'")
+
+SMTP_FROM_EMAIL = (
+    os.getenv("SMTP_FROM_EMAIL")
+    or os.getenv("MAIL_FROM")
+    or os.getenv("EMAIL_FROM")
+    or SMTP_USER
+    or "noreply@shopsphere.in"
+).strip().strip('"').strip("'")
+
 SMTP_FROM_NAME = os.getenv("SMTP_FROM_NAME", "ShopSphere")
 
 # Razorpay Configuration
