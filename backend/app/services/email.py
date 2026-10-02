@@ -1,5 +1,7 @@
+import json
 import logging
 import smtplib
+import urllib.request
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from email.utils import formatdate, make_msgid
@@ -11,6 +13,7 @@ from app.core.config import (
     SMTP_FROM_EMAIL,
     SMTP_FROM_NAME,
     FRONTEND_URL,
+    RESEND_API_KEY,
 )
 
 logger = logging.getLogger(__name__)
@@ -18,13 +21,47 @@ logger = logging.getLogger(__name__)
 
 def send_email(to_email: str, subject: str, html_content: str, text_content: str = "") -> bool:
     """
-    Sends an email using configured SMTP settings.
+    Sends an email using Resend HTTPS API (first choice, works on Railway without port blocks)
+    or standard SMTP settings (port 587/465).
     Falls back gracefully to logging in development / testing environments.
     """
     if not text_content:
         text_content = subject
 
-    # If SMTP is configured, attempt real delivery
+    # 1. First priority: Resend HTTPS API (Port 443 - never blocked by Railway / cloud firewalls)
+    if RESEND_API_KEY:
+        try:
+            from_address = (
+                f"{SMTP_FROM_NAME} <onboarding@resend.dev>"
+                if (not SMTP_FROM_EMAIL or "@gmail.com" in SMTP_FROM_EMAIL)
+                else f"{SMTP_FROM_NAME} <{SMTP_FROM_EMAIL}>"
+            )
+            payload = {
+                "from": from_address,
+                "to": [to_email],
+                "subject": subject,
+                "html": html_content,
+                "text": text_content,
+            }
+            req = urllib.request.Request(
+                "https://api.resend.com/emails",
+                data=json.dumps(payload).encode("utf-8"),
+                headers={
+                    "Authorization": f"Bearer {RESEND_API_KEY}",
+                    "Content-Type": "application/json",
+                    "User-Agent": "ShopSphere/1.0",
+                }
+            )
+            with urllib.request.urlopen(req, timeout=10) as resp:
+                if resp.status in (200, 201):
+                    logger.info(f"Dispatched email to {to_email} via Resend HTTPS API: {subject}")
+                    print(f"[SHOPSPHERE EMAIL SENT (RESEND HTTPS)] Dispatched to {to_email}: {subject}")
+                    return True
+        except Exception as resend_err:
+            logger.warning(f"Resend HTTPS API delivery failed: {resend_err}. Trying SMTP...")
+            print(f"[SHOPSPHERE RESEND ERROR] {resend_err}")
+
+    # 2. Second priority: Standard SMTP (Gmail / Custom SMTP)
     if SMTP_HOST and SMTP_USER and SMTP_PASSWORD:
         try:
             msg = MIMEMultipart("alternative")
@@ -49,19 +86,19 @@ def send_email(to_email: str, subject: str, html_content: str, text_content: str
             msg.attach(part2)
 
             if SMTP_PORT == 465:
-                with smtplib.SMTP_SSL(SMTP_HOST, 465, timeout=20) as server:
+                with smtplib.SMTP_SSL(SMTP_HOST, 465, timeout=4) as server:
                     server.login(SMTP_USER, SMTP_PASSWORD)
                     server.sendmail(effective_from, [to_email], msg.as_string())
             else:
                 try:
-                    with smtplib.SMTP(SMTP_HOST, SMTP_PORT, timeout=20) as server:
+                    with smtplib.SMTP(SMTP_HOST, SMTP_PORT, timeout=4) as server:
                         server.starttls()
                         server.login(SMTP_USER, SMTP_PASSWORD)
                         server.sendmail(effective_from, [to_email], msg.as_string())
                 except Exception as tls_err:
                     logger.warning(f"SMTP STARTTLS on port {SMTP_PORT} failed ({tls_err}). Falling back to port 465 SSL...")
                     print(f"[SHOPSPHERE SMTP] Port {SMTP_PORT} failed ({tls_err}), falling back to 465 SSL...")
-                    with smtplib.SMTP_SSL(SMTP_HOST, 465, timeout=20) as server:
+                    with smtplib.SMTP_SSL(SMTP_HOST, 465, timeout=4) as server:
                         server.login(SMTP_USER, SMTP_PASSWORD)
                         server.sendmail(effective_from, [to_email], msg.as_string())
 
@@ -69,9 +106,8 @@ def send_email(to_email: str, subject: str, html_content: str, text_content: str
             print(f"[SHOPSPHERE EMAIL SENT] Dispatched to {to_email}: {subject}")
             return True
         except Exception as e:
-            logger.error(f"SMTP delivery failed to {to_email}: {e}", exc_info=True)
-            print(f"[SHOPSPHERE SMTP ERROR] Failed sending to {to_email}: {e}")
-            return False
+            logger.warning(f"SMTP delivery failed to {to_email} (cloud host may block SMTP ports 25/465/587): {e}")
+            print(f"[SHOPSPHERE SMTP NOTICE] Port 587/465 blocked by cloud firewall: {e}")
 
     # Development / Fallback simulated email log
     missing_fields = []

@@ -78,6 +78,9 @@ SMTP_FROM_EMAIL = (
 
 SMTP_FROM_NAME = os.getenv("SMTP_FROM_NAME", "ShopSphere")
 
+# HTTPS Email API (bypasses Railway SMTP port blocks)
+RESEND_API_KEY = os.getenv("RESEND_API_KEY", "").strip().strip('"').strip("'")
+
 # Razorpay Configuration
 RAZORPAY_KEY_ID = os.getenv("RAZORPAY_KEY_ID", "rzp_test_shopsphere2026")
 RAZORPAY_KEY_SECRET = os.getenv("RAZORPAY_KEY_SECRET", "mock_secret_key_123")

@@ -67,14 +67,3 @@ def health_check():
             "password_len": len(SMTP_PASSWORD) if SMTP_PASSWORD else 0,
         }
     }
-
-
-@app.get("/test-smtp")
-def test_smtp_endpoint(email: str = "rishumittal.work@gmail.com"):
-    import traceback
-    try:
-        from app.services.email import send_verification_email
-        ok = send_verification_email(email, "112233", "Diagnostic Test")
-        return {"success": ok, "target": email}
-    except Exception as e:
-        return {"success": False, "error": str(e), "traceback": traceback.format_exc()}
