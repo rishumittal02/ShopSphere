@@ -14,6 +14,7 @@ from app.core.config import (
     SMTP_FROM_NAME,
     FRONTEND_URL,
     RESEND_API_KEY,
+    BREVO_API_KEY,
 )
 
 logger = logging.getLogger(__name__)
@@ -21,14 +22,43 @@ logger = logging.getLogger(__name__)
 
 def send_email(to_email: str, subject: str, html_content: str, text_content: str = "") -> bool:
     """
-    Sends an email using Resend HTTPS API (first choice, works on Railway without port blocks)
+    Sends an email using Brevo/Resend HTTPS APIs (works seamlessly on Railway without port blocks)
     or standard SMTP settings (port 587/465).
     Falls back gracefully to logging in development / testing environments.
     """
     if not text_content:
         text_content = subject
 
-    # 1. First priority: Resend HTTPS API (Port 443 - never blocked by Railway / cloud firewalls)
+    # 1. Priority: Brevo (Sendinblue) HTTPS API (Port 443 - free 300 emails/day to ANY email address)
+    if BREVO_API_KEY:
+        try:
+            sender_email = SMTP_FROM_EMAIL if (SMTP_FROM_EMAIL and "@" in SMTP_FROM_EMAIL) else SMTP_USER
+            payload = {
+                "sender": {"name": SMTP_FROM_NAME, "email": sender_email},
+                "to": [{"email": to_email}],
+                "subject": subject,
+                "htmlContent": html_content,
+                "textContent": text_content,
+            }
+            req = urllib.request.Request(
+                "https://api.brevo.com/v3/smtp/email",
+                data=json.dumps(payload).encode("utf-8"),
+                headers={
+                    "api-key": BREVO_API_KEY,
+                    "Content-Type": "application/json",
+                    "Accept": "application/json",
+                }
+            )
+            with urllib.request.urlopen(req, timeout=10) as resp:
+                if resp.status in (200, 201):
+                    logger.info(f"Dispatched email to {to_email} via Brevo HTTPS API: {subject}")
+                    print(f"[SHOPSPHERE EMAIL SENT (BREVO HTTPS)] Dispatched to {to_email}: {subject}")
+                    return True
+        except Exception as brevo_err:
+            logger.warning(f"Brevo HTTPS API delivery failed: {brevo_err}. Trying other methods...")
+            print(f"[SHOPSPHERE BREVO ERROR] {brevo_err}")
+
+    # 2. Priority: Resend HTTPS API (Port 443 - never blocked by Railway / cloud firewalls)
     if RESEND_API_KEY:
         try:
             from_address = (
@@ -61,7 +91,7 @@ def send_email(to_email: str, subject: str, html_content: str, text_content: str
             logger.warning(f"Resend HTTPS API delivery failed: {resend_err}. Trying SMTP...")
             print(f"[SHOPSPHERE RESEND ERROR] {resend_err}")
 
-    # 2. Second priority: Standard SMTP (Gmail / Custom SMTP)
+    # 3. Priority: Standard SMTP (Gmail / Custom SMTP - works on localhost)
     if SMTP_HOST and SMTP_USER and SMTP_PASSWORD:
         try:
             msg = MIMEMultipart("alternative")
