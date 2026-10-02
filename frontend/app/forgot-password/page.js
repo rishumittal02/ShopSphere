@@ -9,6 +9,7 @@ export default function ForgotPasswordPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
+  const [devResetUrl, setDevResetUrl] = useState("");
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -35,6 +36,9 @@ export default function ForgotPasswordPage() {
         data.message ||
           "If your email is registered with ShopSphere, password reset instructions have been dispatched to your inbox."
       );
+      if (data.reset_url) {
+        setDevResetUrl(data.reset_url);
+      }
     } catch (err) {
       setError(err.message);
     } finally {
@@ -85,9 +89,22 @@ export default function ForgotPasswordPage() {
             )}
 
             {success && (
-              <p className="rounded-xl border border-emerald-500/30 bg-emerald-950/30 p-3 text-xs text-emerald-300 leading-relaxed">
-                ✓ {success}
-              </p>
+              <div className="space-y-2">
+                <p className="rounded-xl border border-emerald-500/30 bg-emerald-950/30 p-3 text-xs text-emerald-300 leading-relaxed">
+                  ✓ {success}
+                </p>
+                {devResetUrl && (
+                  <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 p-3 text-xs text-amber-200">
+                    <p className="font-semibold text-amber-300 mb-1">💡 Local Dev Mode (SMTP not configured):</p>
+                    <a
+                      href={devResetUrl}
+                      className="text-blue-400 hover:underline break-all font-mono text-[11px]"
+                    >
+                      {devResetUrl} →
+                    </a>
+                  </div>
+                )}
+              </div>
             )}
 
             <button

@@ -28,7 +28,15 @@ def send_email(to_email: str, subject: str, html_content: str, text_content: str
         try:
             msg = MIMEMultipart("alternative")
             msg["Subject"] = subject
-            msg["From"] = f"{SMTP_FROM_NAME} <{SMTP_FROM_EMAIL}>"
+
+            # Gmail strictly requires the sender to match SMTP_USER or an authorized alias
+            effective_from = SMTP_USER if (
+                "gmail.com" in (SMTP_HOST or "").lower()
+                or not SMTP_FROM_EMAIL
+                or "@shopsphere.in" in SMTP_FROM_EMAIL
+            ) else SMTP_FROM_EMAIL
+
+            msg["From"] = f"{SMTP_FROM_NAME} <{effective_from}>"
             msg["To"] = to_email
 
             part1 = MIMEText(text_content, "plain")
@@ -36,24 +44,38 @@ def send_email(to_email: str, subject: str, html_content: str, text_content: str
             msg.attach(part1)
             msg.attach(part2)
 
-            with smtplib.SMTP(SMTP_HOST, SMTP_PORT, timeout=10) as server:
-                server.starttls()
-                server.login(SMTP_USER, SMTP_PASSWORD)
-                server.sendmail(SMTP_FROM_EMAIL, [to_email], msg.as_string())
+            if SMTP_PORT == 465:
+                with smtplib.SMTP_SSL(SMTP_HOST, SMTP_PORT, timeout=12) as server:
+                    server.login(SMTP_USER, SMTP_PASSWORD)
+                    server.sendmail(effective_from, [to_email], msg.as_string())
+            else:
+                with smtplib.SMTP(SMTP_HOST, SMTP_PORT, timeout=12) as server:
+                    server.starttls()
+                    server.login(SMTP_USER, SMTP_PASSWORD)
+                    server.sendmail(effective_from, [to_email], msg.as_string())
 
             logger.info(f"Successfully dispatched real email to {to_email}: {subject}")
+            print(f"[SHOPSPHERE EMAIL SENT] Dispatched to {to_email}: {subject}")
             return True
         except Exception as e:
             logger.warning(f"SMTP delivery failed to {to_email} ({e}). Logging email instead.")
+            print(f"[SHOPSPHERE SMTP ERROR] Failed sending to {to_email}: {e}")
 
     # Development / Fallback simulated email log
     logger.info("=" * 60)
-    logger.info(f"[SHOPSPHERE EMAIL SIMULATION]")
+    logger.info(f"[SHOPSPHERE EMAIL SIMULATION - SMTP NOT CONFIGURED]")
     logger.info(f"To: {to_email}")
     logger.info(f"From: {SMTP_FROM_NAME} <{SMTP_FROM_EMAIL}>")
     logger.info(f"Subject: {subject}")
     logger.info(f"Text Preview: {text_content[:200]}...")
     logger.info("=" * 60)
+
+    print("\n" + "=" * 60)
+    print(f"[SHOPSPHERE EMAIL SIMULATION - NO SMTP IN .env]")
+    print(f"To: {to_email}")
+    print(f"Subject: {subject}")
+    print(f"Text Content: {text_content}")
+    print("=" * 60 + "\n")
     return True
 
 
