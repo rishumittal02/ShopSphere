@@ -30,8 +30,6 @@ class UserResponse(BaseModel):
     email: EmailStr
     role: str
     is_verified: bool = False
-    preview_code: str | None = None
-    dev_hint: str | None = None
 
     model_config = ConfigDict(
         from_attributes=True
@@ -63,7 +61,4 @@ class ResetPasswordRequest(BaseModel):
 
 class AuthMessageResponse(BaseModel):
     message: str
-    success: bool = True
-    preview_code: str | None = None
-    dev_hint: str | None = None
-    reset_url: str | None = None
+    success: bool = True

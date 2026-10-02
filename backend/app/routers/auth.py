@@ -95,14 +95,6 @@ def register_user(
     except Exception as e:
         print(f"[AUTH ERROR] Failed sending verification email: {e}")
 
-    # If SMTP is not configured in local development, attach preview_code so user is not blocked
-    if not (SMTP_HOST and SMTP_USER and SMTP_PASSWORD):
-        new_user.preview_code = code
-        new_user.dev_hint = (
-            f"[LOCAL DEV MODE] Gmail SMTP is not configured in backend/.env. "
-            f"Your verification code is: {code}."
-        )
-
     return new_user
 
 @router.post("/login", response_model=TokenResponse)
@@ -251,20 +243,9 @@ def resend_verification(
     except Exception as e:
         print(f"[AUTH ERROR] Failed resending verification email: {e}")
 
-    preview_code = None
-    dev_hint = None
-    if not (SMTP_HOST and SMTP_USER and SMTP_PASSWORD):
-        preview_code = code
-        dev_hint = (
-            f"[LOCAL DEV MODE] Gmail SMTP is not configured in backend/.env. "
-            f"Your verification code is: {code}."
-        )
-
     return {
         "message": f"A new 6-digit verification code has been dispatched to {user.email}.",
-        "success": True,
-        "preview_code": preview_code,
-        "dev_hint": dev_hint
+        "success": True
     }
 
 
@@ -291,15 +272,9 @@ def forgot_password(
         except Exception:
             pass
 
-        if not (SMTP_HOST and SMTP_USER and SMTP_PASSWORD):
-            preview_url = reset_url
-            dev_hint = f"[LOCAL DEV MODE] Reset URL: {reset_url}"
-
     return {
         "message": "If this email is registered, password reset instructions have been sent to your inbox.",
-        "success": True,
-        "reset_url": preview_url,
-        "dev_hint": dev_hint
+        "success": True
     }
 
 

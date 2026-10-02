@@ -22,7 +22,6 @@ export default function RegisterPage() {
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
   const [resendCooldown, setResendCooldown] = useState(0);
-  const [devHint, setDevHint] = useState("");
 
   const handleChange = (event) => {
     const { name, value } = event.target;
@@ -60,10 +59,6 @@ export default function RegisterPage() {
       }
 
       setSuccess("Account created! A 6-digit verification code has been dispatched to your email.");
-      if (data.preview_code) {
-        setVerificationCode(data.preview_code);
-        setDevHint(data.dev_hint || `Local Dev Mode: Code is ${data.preview_code}`);
-      }
       setStep(2);
       startResendTimer();
     } catch (err) {
@@ -159,10 +154,6 @@ export default function RegisterPage() {
       }
 
       setSuccess("A new 6-digit verification code has been dispatched to your email.");
-      if (data.preview_code) {
-        setVerificationCode(data.preview_code);
-        setDevHint(data.dev_hint || `Local Dev Mode: Code is ${data.preview_code}`);
-      }
       startResendTimer();
     } catch (err) {
       setError(err.message);
@@ -288,26 +279,6 @@ export default function RegisterPage() {
                   We sent a 6-digit confirmation code to{" "}
                   <strong className="text-white font-mono">{formData.email}</strong>.
                 </p>
-
-                {devHint && (
-                  <div className="mt-4 rounded-2xl border border-amber-500/30 bg-amber-500/10 p-3.5 text-xs text-amber-200 text-left space-y-1">
-                    <div className="flex items-center gap-1.5 font-bold text-amber-300">
-                      <span>💡</span>
-                      <span>Local Dev Mode (SMTP not configured)</span>
-                    </div>
-                    <p className="text-[11px] leading-relaxed text-amber-200/90">
-                      Gmail SMTP is not set up in <code className="bg-black/50 px-1 py-0.5 rounded text-white font-mono">backend/.env</code>.
-                      For quick testing, your verification code is:{" "}
-                      <strong className="font-mono text-sm bg-blue-600 text-white px-2 py-0.5 rounded shadow">
-                        {verificationCode}
-                      </strong>{" "}
-                      (auto-filled).
-                    </p>
-                    <p className="text-[10px] text-amber-400/80">
-                      To receive real emails in your Gmail inbox, add your Gmail App Password to <code className="font-mono text-amber-200">backend/.env</code>.
-                    </p>
-                  </div>
-                )}
               </div>
 
               <form onSubmit={handleVerify} className="space-y-4">
