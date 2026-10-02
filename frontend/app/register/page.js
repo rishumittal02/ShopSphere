@@ -126,7 +126,7 @@ function RegisterContent() {
   };
 
   const startResendTimer = () => {
-    setResendCooldown(30);
+    setResendCooldown(60);
     const interval = setInterval(() => {
       setResendCooldown((prev) => {
         if (prev <= 1) {
@@ -285,6 +285,9 @@ function RegisterContent() {
                 <p className="mt-1 text-xs text-gray-400 leading-relaxed">
                   We sent a 6-digit confirmation code to{" "}
                   <strong className="text-white font-mono">{formData.email}</strong>.
+                </p>
+                <p className="mt-1 text-[11px] text-blue-400/90 bg-blue-950/40 border border-blue-800/40 rounded-lg py-1 px-2.5 inline-block">
+                  💡 If not in your primary inbox, please check your <strong>Spam</strong> or <strong>Promotions</strong> folder.
                 </p>
               </div>
 

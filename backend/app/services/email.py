@@ -2,6 +2,7 @@ import logging
 import smtplib
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
+from email.utils import formatdate, make_msgid
 from app.core.config import (
     SMTP_HOST,
     SMTP_PORT,
@@ -38,6 +39,9 @@ def send_email(to_email: str, subject: str, html_content: str, text_content: str
 
             msg["From"] = f"{SMTP_FROM_NAME} <{effective_from}>"
             msg["To"] = to_email
+            msg["Reply-To"] = effective_from
+            msg["Date"] = formatdate(localtime=True)
+            msg["Message-ID"] = make_msgid(domain="gmail.com")
 
             part1 = MIMEText(text_content, "plain")
             part2 = MIMEText(html_content, "html")
@@ -224,7 +228,13 @@ def send_verification_email(user, code: str, user_name: str = "") -> bool:
     to_email = getattr(user, "email", user) if not isinstance(user, str) else user
     name = getattr(user, "name", user_name) if not isinstance(user, str) else (user_name or "Customer")
 
-    subject = f"Verify your ShopSphere Account ({code})"
+    print(f"\n========================================================")
+    print(f"[SHOPSPHERE OTP DISPATCH]")
+    print(f"To: {to_email}")
+    print(f"Verification Code: {code}")
+    print(f"========================================================\n")
+
+    subject = f"Your ShopSphere verification code: {code}"
     
     html_content = f"""
     <!DOCTYPE html>
