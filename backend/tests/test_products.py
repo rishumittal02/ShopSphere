@@ -192,3 +192,48 @@ def test_pagination_products(client, sample_category, db_session):
     ids_p1 = {p["id"] for p in res_p1.json()}
     ids_p2 = {p["id"] for p in res_p2.json()}
     assert ids_p1.isdisjoint(ids_p2)
+
+
+def test_delete_product_with_cart_items(client, admin_token, sample_product, normal_user, db_session):
+    from app.models.cart import Cart, CartItem
+
+    # Create a cart with this product for a user
+    cart = Cart(user_id=normal_user.id)
+    db_session.add(cart)
+    db_session.flush()
+
+    cart_item = CartItem(cart_id=cart.id, product_id=sample_product.id, quantity=2)
+    db_session.add(cart_item)
+    db_session.commit()
+
+    # Deleting product should succeed and auto-clean cart_items
+    headers = {"Authorization": f"Bearer {admin_token}"}
+    response = client.delete(f"/products/{sample_product.id}", headers=headers)
+    assert response.status_code == 200
+    assert "deleted successfully" in response.json()["message"]
+
+    # Verify cart item was cleaned up
+    remaining = db_session.query(CartItem).filter(CartItem.product_id == sample_product.id).all()
+    assert len(remaining) == 0
+
+
+def test_delete_product_linked_to_orders(client, admin_token, sample_product, normal_user, db_session):
+    from app.models.order import Order, OrderItem
+    from decimal import Decimal
+
+    # Create an order with this product
+    order = Order(user_id=normal_user.id, total_amount=Decimal("99.99"), status="pending")
+    db_session.add(order)
+    db_session.flush()
+
+    order_item = OrderItem(order_id=order.id, product_id=sample_product.id, quantity=1, price=sample_product.price)
+    db_session.add(order_item)
+    db_session.commit()
+
+    # Attempting to delete should return 400 with a descriptive error
+    headers = {"Authorization": f"Bearer {admin_token}"}
+    response = client.delete(f"/products/{sample_product.id}", headers=headers)
+    assert response.status_code == 400
+    assert "linked to 1 past customer order" in response.json()["detail"]
+    assert "set its stock to 0" in response.json()["detail"]
+

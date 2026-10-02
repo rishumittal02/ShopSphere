@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import or_
 from sqlalchemy.orm import Session, joinedload
+from sqlalchemy.exc import IntegrityError
 from typing import Literal
 
 from app.db.dependencies import get_db
@@ -9,6 +10,8 @@ from app.core.dependencies import require_admin
 from app.models.user import User
 from app.models.product import Product
 from app.models.category import Category
+from app.models.cart import CartItem
+from app.models.order import OrderItem
 
 from app.schemas.product import (
     ProductCreate,
@@ -266,9 +269,39 @@ def delete_product(
             detail="Product not found"
         )
 
-    db.delete(product)
-    db.commit()
+    # 1. Check if product is referenced in existing customer orders
+    order_count = (
+        db.query(OrderItem)
+        .filter(OrderItem.product_id == product_id)
+        .count()
+    )
+
+    if order_count > 0:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"Cannot delete \"{product.name}\" because it is linked to {order_count} past customer order(s). "
+                f"To stop selling this product without altering customer order history, please edit the product and set its stock to 0."
+            )
+        )
+
+    try:
+        # 2. Clean up any active carts that have this product
+        db.query(CartItem).filter(CartItem.product_id == product_id).delete(synchronize_session=False)
+
+        # 3. Delete the product
+        db.delete(product)
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"Cannot delete \"{product.name}\" because it is referenced by other database records. "
+                f"Please update its stock to 0 instead."
+            )
+        )
 
     return {
-        "message": "Product deleted successfully"
+        "message": f"Product '{product.name}' deleted successfully"
     }

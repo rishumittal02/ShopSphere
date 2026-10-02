@@ -49,14 +49,9 @@ export default function Navbar() {
           <Link
             href="/"
             onClick={closeMenu}
-            className="flex items-center gap-2 text-2xl font-black tracking-tight text-white group shrink-0"
+            className="text-2xl font-black tracking-tight text-white hover:text-blue-400 transition-colors shrink-0"
           >
-            <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-tr from-blue-600 via-indigo-600 to-purple-500 font-black text-white shadow-lg shadow-blue-500/25 group-hover:scale-105 transition-transform duration-200">
-              S
-            </span>
-            <span className="hidden sm:inline">
-              Shop<span className="text-blue-400">Sphere</span>
-            </span>
+            ShopSphere
           </Link>
 
           {/* Search Bar */}

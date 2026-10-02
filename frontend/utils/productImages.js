@@ -9,39 +9,55 @@ const PRODUCT_IMAGE_MAP = {
   "dell inspiron 15": "https://images.unsplash.com/photo-1588872657578-7efd1f1555ed?w=800&auto=format&fit=crop&q=80",
   "gaming laptop": "https://images.unsplash.com/photo-1603302576837-37561b2e2302?w=800&auto=format&fit=crop&q=80",
   "sony wh-1000xm5": "https://images.unsplash.com/photo-1546435770-a3e426bf472b?w=800&auto=format&fit=crop&q=80",
+  "sony wh-1000xm5 wireless headphones": "https://images.unsplash.com/photo-1546435770-a3e426bf472b?w=800&auto=format&fit=crop&q=80",
+  "samsung galaxy s24 ultra": "https://images.unsplash.com/photo-1610945415295-d9bbf067e59c?w=800&auto=format&fit=crop&q=80",
+  "apple macbook air m3": "https://images.unsplash.com/photo-1517336714731-489689fd1ca8?w=800&auto=format&fit=crop&q=80",
+  "lg c3 55-inch oled 4k smart tv": "https://images.unsplash.com/photo-1593359677879-a4bb92f829d1?w=800&auto=format&fit=crop&q=80",
+  "apple ipad air m2": "https://images.unsplash.com/photo-1544244015-0df4b3ffc6b0?w=800&auto=format&fit=crop&q=80",
   "logitech mx master 3s": "https://images.unsplash.com/photo-1615663245857-ac93bb7c39e7?w=800&auto=format&fit=crop&q=80",
+  "logitech mx master 3s wireless mouse": "https://images.unsplash.com/photo-1615663245857-ac93bb7c39e7?w=800&auto=format&fit=crop&q=80",
   "apple ipad air": "https://images.unsplash.com/photo-1544244015-0df4b3ffc6b0?w=800&auto=format&fit=crop&q=80",
-  "oneplus 12": "/images/products/oneplus_12.jpg",
+  "oneplus 12": "https://images.unsplash.com/photo-1598327105666-5b89351aff97?w=800&auto=format&fit=crop&q=80",
 
   // Gaming
   "playstation 5 slim console": "https://images.unsplash.com/photo-1606813907291-d86efa9b94db?w=800&auto=format&fit=crop&q=80",
   "xbox elite wireless controller series 2": "https://images.unsplash.com/photo-1600080972464-8e5f35f63d08?w=800&auto=format&fit=crop&q=80",
-  "razer blackwidow v4 mechanical keyboard": "/images/products/razer_keyboard.jpg",
-  "steelseries arctis nova 7 wireless headset": "/images/products/steelseries_headset.jpg",
+  "razer blackwidow v4 mechanical keyboard": "https://images.unsplash.com/photo-1587829741301-dc798b83add3?w=800&auto=format&fit=crop&q=80",
+  "steelseries arctis nova 7 wireless headset": "https://images.unsplash.com/photo-1590658268037-6bf12165a8df?w=800&auto=format&fit=crop&q=80",
+  "nintendo switch oled model": "https://images.unsplash.com/photo-1578303512597-81e6cc155b3e?w=800&auto=format&fit=crop&q=80",
+  "asus rog swift 27-inch 240hz gaming monitor": "https://images.unsplash.com/photo-1527443224154-c4a3942d3acf?w=800&auto=format&fit=crop&q=80",
 
   // Clothing
-  "classic denim trucker jacket": "/images/products/denim_jacket.jpg",
-  "urban heavyweight cotton hoodie": "/images/products/heavyweight_hoodie.jpg",
+  "classic denim trucker jacket": "https://images.unsplash.com/photo-1576995853123-5a10305d93c0?w=800&auto=format&fit=crop&q=80",
+  "urban heavyweight cotton hoodie": "https://images.unsplash.com/photo-1556905055-8f358a7a47b2?w=800&auto=format&fit=crop&q=80",
   "tailored slim fit chinos": "https://images.unsplash.com/photo-1624378439575-d8705ad7ae80?w=800&auto=format&fit=crop&q=80",
   "casual linen button-down shirt": "https://images.unsplash.com/photo-1596755094514-f87e34085b2c?w=800&auto=format&fit=crop&q=80",
+  "merino wool crewneck sweater": "https://images.unsplash.com/photo-1620799140408-edc6dcb6d633?w=800&auto=format&fit=crop&q=80",
+  "all-weather technical windbreaker": "https://images.unsplash.com/photo-1544022613-e87ca75a784a?w=800&auto=format&fit=crop&q=80",
 
   // Footwear
   "nike air jordan 1 retro high": "https://images.unsplash.com/photo-1552346154-21d32810aba3?w=800&auto=format&fit=crop&q=80",
-  "adidas ultraboost light running shoes": "/images/products/adidas_ultraboost.jpg",
-  "puma classic white court sneakers": "/images/products/puma_sneakers.jpg",
+  "adidas ultraboost light running shoes": "https://images.unsplash.com/photo-1584735935682-2f2b69dff9d2?w=800&auto=format&fit=crop&q=80",
+  "puma classic white court sneakers": "https://images.unsplash.com/photo-1560769629-975ec94e6a86?w=800&auto=format&fit=crop&q=80",
   "woodland rugged nubuck leather boots": "https://images.unsplash.com/photo-1520639888713-7851133b1ed0?w=800&auto=format&fit=crop&q=80",
+  "new balance 9060 lifestyle sneakers": "https://images.unsplash.com/photo-1539185441755-769473a23570?w=800&auto=format&fit=crop&q=80",
+  "birkenstock arizona leather sandals": "https://images.unsplash.com/photo-1603808033192-082d6919d3e1?w=800&auto=format&fit=crop&q=80",
 
   // Accessories
-  "fossil gen 6 smartwatch": "/images/products/fossil_smartwatch.jpg",
-  "ray-ban classic wayfarer sunglasses": "/images/products/rayban_wayfarer.jpg",
+  "fossil gen 6 smartwatch": "https://images.unsplash.com/photo-1523275335684-37898b6baf30?w=800&auto=format&fit=crop&q=80",
+  "ray-ban classic wayfarer sunglasses": "https://images.unsplash.com/photo-1511499767150-a48a237f0083?w=800&auto=format&fit=crop&q=80",
   "bellroy slim leather bi-fold wallet": "https://images.unsplash.com/photo-1627123424574-724758594e93?w=800&auto=format&fit=crop&q=80",
   "aer day pack 2 tech backpack": "https://images.unsplash.com/photo-1553062407-98eeb64c6a62?w=800&auto=format&fit=crop&q=80",
+  "ridge titanium rfid blocking wallet": "https://images.unsplash.com/photo-1607604276583-eef5d076aa5f?w=800&auto=format&fit=crop&q=80",
+  "marshall major iv wireless headphones": "https://images.unsplash.com/photo-1505740420928-5e560c06d30e?w=800&auto=format&fit=crop&q=80",
 
   // Home & Living
-  "nespresso vertuo pop coffee machine": "/images/products/nespresso_machine.jpg",
-  "ergonomic high-back mesh chair": "/images/products/office_chair.jpg",
-  "dyson pure cool link air purifier": "/images/products/dyson_purifier.jpg",
-  "philips hue smart led desk lamp": "https://images.unsplash.com/photo-1507473885765-e6ed057f782c?w=800&auto=format&fit=crop&q=80"
+  "nespresso vertuo pop coffee machine": "https://images.unsplash.com/photo-1517668808822-9ebb02ae2a0e?w=800&auto=format&fit=crop&q=80",
+  "ergonomic high-back mesh chair": "https://images.unsplash.com/photo-1580481077195-c3a821a58875?w=800&auto=format&fit=crop&q=80",
+  "dyson pure cool link air purifier": "https://images.unsplash.com/photo-1585771724684-38269d6639fd?w=800&auto=format&fit=crop&q=80",
+  "philips hue smart led desk lamp": "https://images.unsplash.com/photo-1507473885765-e6ed057f782c?w=800&auto=format&fit=crop&q=80",
+  "fellow ode gen 2 brew coffee grinder": "https://images.unsplash.com/photo-1514432324607-a09d9b4aefdd?w=800&auto=format&fit=crop&q=80",
+  "le creuset enameled cast iron dutch oven": "https://images.unsplash.com/photo-1584269600464-37b1b58a9fe7?w=800&auto=format&fit=crop&q=80"
 };
 
 const CATEGORY_FALLBACK_MAP = {

@@ -30,7 +30,13 @@ class OrderItemResponse(BaseModel):
 
 
 class CheckoutRequest(BaseModel):
-    payment_method: str | None = "UPI"
+    payment_method: str | None = "Razorpay"
+
+
+class VerifyPaymentRequest(BaseModel):
+    razorpay_payment_id: str
+    razorpay_order_id: str | None = None
+    razorpay_signature: str | None = None
 
 
 class OrderResponse(BaseModel):
@@ -38,7 +44,9 @@ class OrderResponse(BaseModel):
     user_id: int
     total_amount: Decimal
     status: str
-    payment_method: str | None = "UPI"
+    payment_method: str | None = "Razorpay"
+    payment_id: str | None = None
+    razorpay_order_id: str | None = None
     created_at: datetime
 
     user: OrderUserResponse

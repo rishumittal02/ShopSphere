@@ -1,3 +1,4 @@
+from datetime import datetime, timezone
 from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, Body
 from sqlalchemy.orm import Session, joinedload
@@ -10,7 +11,11 @@ from app.models.cart import Cart, CartItem
 from app.models.product import Product
 from app.models.order import Order, OrderItem
 
-from app.schemas.order import OrderResponse, CheckoutRequest
+from app.schemas.order import OrderResponse, CheckoutRequest, VerifyPaymentRequest
+from app.services.email import (
+    send_order_confirmation_email,
+    send_order_cancellation_email,
+)
 
 
 router = APIRouter(
@@ -20,7 +25,7 @@ router = APIRouter(
 
 
 # =========================================================
-# CHECKOUT
+# CHECKOUT (Order created as pending until payment verified)
 # =========================================================
 
 @router.post("/checkout", response_model=OrderResponse)
@@ -29,7 +34,7 @@ def checkout(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    payment_method = payload.payment_method if (payload and payload.payment_method) else "UPI"
+    payment_method = payload.payment_method if (payload and payload.payment_method) else "Razorpay"
     try:
         cart = (
             db.query(Cart)
@@ -85,7 +90,7 @@ def checkout(
 
             total_amount += product.price * item.quantity
 
-        # Create order
+        # Create order in pending status
         new_order = Order(
             user_id=current_user.id,
             total_amount=total_amount,
@@ -98,7 +103,10 @@ def checkout(
         # Generate order ID
         db.flush()
 
-        # Create order items and reduce stock
+        # Generate Razorpay order ID reference
+        new_order.razorpay_order_id = f"order_rzp_{new_order.id}_{int(datetime.now(timezone.utc).timestamp())}"
+
+        # Create order items and reserve/reduce stock
         for item in cart.items:
             product = products_by_id[item.product_id]
 
@@ -120,8 +128,7 @@ def checkout(
         # Commit everything together
         db.commit()
 
-        # Fetch the completed order with
-        # customer + products
+        # Fetch the completed order with customer + products
         order = (
             db.query(Order)
             .options(
@@ -146,6 +153,132 @@ def checkout(
             status_code=500,
             detail="Checkout failed"
         )
+
+
+# =========================================================
+# VERIFY PAYMENT (Transitions pending -> confirmed)
+# =========================================================
+
+@router.post("/{order_id}/verify-payment", response_model=OrderResponse)
+def verify_payment(
+    order_id: int,
+    payload: VerifyPaymentRequest,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    order = (
+        db.query(Order)
+        .options(
+            joinedload(Order.user),
+            joinedload(Order.items)
+            .joinedload(OrderItem.product)
+        )
+        .filter(Order.id == order_id)
+        .first()
+    )
+
+    if order is None:
+        raise HTTPException(
+            status_code=404,
+            detail="Order not found"
+        )
+
+    if order.user_id != current_user.id and current_user.role != "admin":
+        raise HTTPException(
+            status_code=403,
+            detail="You do not have permission to pay for this order"
+        )
+
+    if order.status == "cancelled":
+        raise HTTPException(
+            status_code=400,
+            detail="Cannot complete payment on a cancelled order"
+        )
+
+    if order.status in {"confirmed", "shipped", "delivered"}:
+        return order
+
+    # Payment successful: update order status to confirmed
+    order.status = "confirmed"
+    order.payment_method = "Razorpay"
+    order.payment_id = payload.razorpay_payment_id
+    if payload.razorpay_order_id:
+        order.razorpay_order_id = payload.razorpay_order_id
+
+    db.commit()
+    db.refresh(order)
+
+    # Dispatch email confirmation
+    try:
+        send_order_confirmation_email(order, order.user)
+    except Exception:
+        pass
+
+    return order
+
+
+# =========================================================
+# USER CANCEL ORDER
+# =========================================================
+
+@router.post("/{order_id}/cancel", response_model=OrderResponse)
+@router.put("/{order_id}/cancel", response_model=OrderResponse)
+def cancel_order(
+    order_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    order = (
+        db.query(Order)
+        .options(
+            joinedload(Order.user),
+            joinedload(Order.items)
+            .joinedload(OrderItem.product)
+        )
+        .filter(Order.id == order_id)
+        .first()
+    )
+
+    if order is None:
+        raise HTTPException(
+            status_code=404,
+            detail="Order not found"
+        )
+
+    if order.user_id != current_user.id and current_user.role != "admin":
+        raise HTTPException(
+            status_code=403,
+            detail="You do not have permission to cancel this order"
+        )
+
+    if order.status in {"delivered", "cancelled"}:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Order is already {order.status} and cannot be cancelled"
+        )
+
+    if order.status not in {"pending", "confirmed"}:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Order in status '{order.status}' has already been processed for shipping and cannot be cancelled by user"
+        )
+
+    # Restore inventory
+    for item in order.items:
+        if item.product:
+            item.product.stock += item.quantity
+
+    order.status = "cancelled"
+    db.commit()
+    db.refresh(order)
+
+    # Dispatch cancellation email
+    try:
+        send_order_cancellation_email(order, order.user)
+    except Exception:
+        pass
+
+    return order
 
 
 # =========================================================
@@ -265,9 +398,27 @@ def update_order_status(
             )
         )
 
+    # If cancelling, restore stock
+    if status == "cancelled":
+        for item in order.items:
+            if item.product:
+                item.product.stock += item.quantity
+
     order.status = status
 
     db.commit()
     db.refresh(order)
+
+    # If status changed to confirmed, send confirmation email
+    if status == "confirmed":
+        try:
+            send_order_confirmation_email(order, order.user)
+        except Exception:
+            pass
+    elif status == "cancelled":
+        try:
+            send_order_cancellation_email(order, order.user)
+        except Exception:
+            pass
 
     return order

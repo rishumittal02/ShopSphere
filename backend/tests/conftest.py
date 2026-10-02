@@ -63,6 +63,7 @@ def normal_user(db_session):
         email="john@example.com",
         password=pwd_context.hash("password123"),
         role="user",
+        is_verified=True,
     )
     db_session.add(user)
     db_session.commit()
@@ -84,6 +85,7 @@ def admin_user(db_session):
         email="admin@example.com",
         password=pwd_context.hash("adminpassword123"),
         role="admin",
+        is_verified=True,
     )
     db_session.add(admin)
     db_session.commit()

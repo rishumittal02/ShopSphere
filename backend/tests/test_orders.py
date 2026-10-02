@@ -25,7 +25,7 @@ def test_checkout_success(client, normal_user_token, sample_product, db_session)
     assert response.status_code == 200
     order = response.json()
     assert order["status"] == "pending"
-    assert order.get("payment_method") == "UPI"
+    assert order.get("payment_method") == "Razorpay"
     assert len(order["items"]) == 1
     assert order["items"][0]["product_id"] == sample_product.id
     assert order["items"][0]["quantity"] == buy_quantity
@@ -201,3 +201,50 @@ def test_order_status_invalid_transition(
     )
     assert res_reopen.status_code == 400
     assert "already cancelled" in res_reopen.json()["detail"]
+
+
+def test_user_can_cancel_own_order(client, normal_user_token, sample_product, db_session):
+    headers = {"Authorization": f"Bearer {normal_user_token}"}
+    initial_stock = sample_product.stock
+
+    # Create order
+    client.post("/cart/items", json={"product_id": sample_product.id, "quantity": 2}, headers=headers)
+    order = client.post("/orders/checkout", headers=headers).json()
+    order_id = order["id"]
+    assert order["status"] == "pending"
+
+    # Stock should be reduced
+    db_session.refresh(sample_product)
+    assert sample_product.stock == initial_stock - 2
+
+    # User cancels order
+    cancel_res = client.post(f"/orders/{order_id}/cancel", headers=headers)
+    assert cancel_res.status_code == 200
+    cancelled_order = cancel_res.json()
+    assert cancelled_order["status"] == "cancelled"
+
+    # Stock should be restored
+    db_session.refresh(sample_product)
+    assert sample_product.stock == initial_stock
+
+
+def test_payment_verification_confirms_order(client, normal_user_token, sample_product):
+    headers = {"Authorization": f"Bearer {normal_user_token}"}
+
+    client.post("/cart/items", json={"product_id": sample_product.id, "quantity": 1}, headers=headers)
+    order = client.post("/orders/checkout", headers=headers).json()
+    order_id = order["id"]
+    assert order["status"] == "pending"
+
+    # Verify payment
+    verify_payload = {
+        "razorpay_payment_id": "pay_test_987654321",
+        "razorpay_order_id": order.get("razorpay_order_id", "order_rzp_test"),
+        "razorpay_signature": "mock_valid_signature"
+    }
+    verify_res = client.post(f"/orders/{order_id}/verify-payment", json=verify_payload, headers=headers)
+    assert verify_res.status_code == 200
+    confirmed_order = verify_res.json()
+    assert confirmed_order["status"] == "confirmed"
+    assert confirmed_order["payment_method"] == "Razorpay"
+

@@ -34,7 +34,17 @@ class Order(Base):
     payment_method = Column(
         String(50),
         nullable=True,
-        default="UPI"
+        default="Razorpay"
+    )
+
+    payment_id = Column(
+        String(100),
+        nullable=True
+    )
+
+    razorpay_order_id = Column(
+        String(100),
+        nullable=True
     )
 
     created_at = Column(

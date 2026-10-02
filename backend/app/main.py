@@ -5,7 +5,8 @@ from app.routers.categories import router as category_router
 from app.routers.auth import router as auth_router
 from app.routers.cart import router as cart_router
 from app.routers.orders import router as order_router
-from app.core.exceptions import global_exception_handler
+from sqlalchemy.exc import IntegrityError
+from app.core.exceptions import global_exception_handler, integrity_exception_handler
 from app.core.logging import setup_logging
 from app.core.config import FRONTEND_URL
 
@@ -16,6 +17,7 @@ setup_logging()
 
 app = FastAPI(title="ShopSphere API")
 
+app.add_exception_handler(IntegrityError, integrity_exception_handler)
 app.add_exception_handler(Exception, global_exception_handler)
 
 frontend_origins = [url.strip() for url in (FRONTEND_URL or "").split(",") if url.strip()]

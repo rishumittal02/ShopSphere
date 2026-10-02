@@ -13,6 +13,7 @@ export default function AdminProductsPage() {
   const [categories, setCategories] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [successMessage, setSuccessMessage] = useState("");
 
   // Filters & Pagination State
   const [selectedCategory, setSelectedCategory] = useState("all");
@@ -68,21 +69,34 @@ export default function AdminProductsPage() {
     try {
       setDeletingId(productId);
       setError("");
+      setSuccessMessage("");
 
       const response = await apiFetch(
         `http://localhost:8000/products/${productId}`,
         { method: "DELETE" }
       );
 
-      const data = await response.json();
+      let data = {};
+      try {
+        data = await response.json();
+      } catch (e) {
+        // Fallback for non-JSON response
+      }
 
       if (!response.ok) {
-        throw new Error(data.detail || "Failed to delete product");
+        throw new Error(data.detail || `Failed to delete product (HTTP ${response.status})`);
       }
 
       setProducts((prev) => prev.filter((p) => p.id !== productId));
+      setSuccessMessage(`Product "${productName}" was deleted successfully.`);
+      setTimeout(() => {
+        setSuccessMessage("");
+      }, 5000);
     } catch (err) {
-      setError(err.message);
+      const msg = err.message === "Failed to fetch"
+        ? "Unable to connect to the backend server. Please verify your connection or check server logs."
+        : err.message;
+      setError(msg);
     } finally {
       setDeletingId(null);
     }
@@ -231,10 +245,24 @@ export default function AdminProductsPage() {
           </div>
         </div>
 
+        {/* SUCCESS NOTIFICATION */}
+        {successMessage && (
+          <div className="rounded-2xl border border-emerald-500/30 bg-emerald-500/10 p-4 text-xs font-medium text-emerald-300 flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <span className="text-base">✅</span>
+              <span>{successMessage}</span>
+            </div>
+            <button onClick={() => setSuccessMessage("")} className="text-emerald-400 hover:text-white font-bold ml-4">✕</button>
+          </div>
+        )}
+
         {/* ERROR NOTIFICATION */}
         {error && (
           <div className="rounded-2xl border border-red-500/30 bg-red-500/10 p-4 text-xs font-medium text-red-300 flex items-center justify-between">
-            <span>⚠️ {error}</span>
+            <div className="flex items-center gap-2">
+              <span className="text-base">⚠️</span>
+              <span>{error}</span>
+            </div>
             <button onClick={() => setError("")} className="text-red-400 hover:text-white font-bold ml-4">✕</button>
           </div>
         )}

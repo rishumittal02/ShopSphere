@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String
+from sqlalchemy import Column, Integer, String, Boolean, DateTime
 from sqlalchemy.orm import relationship
 
 from app.db.base import Base
@@ -12,6 +12,11 @@ class User(Base):
     email = Column(String(255), unique=True, nullable=False, index=True)
     password = Column(String(255), nullable=False)
     role = Column(String(20), nullable=False, default="user")
+    is_verified = Column(Boolean, nullable=False, default=False)
+    verification_code = Column(String(10), nullable=True)
+    verification_code_expires_at = Column(DateTime, nullable=True)
+    reset_password_token = Column(String(255), nullable=True, index=True)
+    reset_password_expires_at = Column(DateTime, nullable=True)
 
     cart = relationship(
         "Cart",

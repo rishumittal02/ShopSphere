@@ -34,50 +34,30 @@ export default function Footer() {
         <div className="mx-auto max-w-7xl flex flex-col md:flex-row items-center justify-between gap-4">
           <div className="flex items-center gap-2">
             <span className="text-xs font-bold uppercase tracking-wider text-gray-300">
-              Accepted Payment Methods:
+              Integrated Payment Gateways:
             </span>
           </div>
 
-          <div className="flex flex-wrap items-center justify-center gap-2">
+          <div className="flex flex-wrap items-center justify-center gap-2.5">
+            {/* Razorpay Badge */}
+            <div className="rounded-xl border border-blue-500/30 bg-blue-950/40 px-3.5 py-1.5 font-bold text-blue-400 text-xs tracking-wider flex items-center gap-1.5 shadow-sm">
+              <span>⚡</span> Razorpay Secure (UPI, Cards, NetBanking)
+            </div>
+            {/* Stripe Badge */}
+            <div className="rounded-xl border border-purple-500/30 bg-purple-950/40 px-3.5 py-1.5 font-bold text-purple-400 text-xs tracking-wider flex items-center gap-1.5 shadow-sm">
+              <span>💳</span> Stripe Checkout
+            </div>
             {/* Visa */}
-            <div className="rounded-lg border border-gray-800 bg-gray-900 px-3 py-1.5 font-mono font-bold text-blue-400 text-xs tracking-wider">
+            <div className="rounded-lg border border-gray-800 bg-gray-900 px-3 py-1.5 font-mono font-bold text-gray-300 text-xs tracking-wider">
               VISA
             </div>
             {/* Mastercard */}
-            <div className="rounded-lg border border-gray-800 bg-gray-900 px-3 py-1.5 font-mono font-bold text-amber-500 text-xs tracking-wider">
+            <div className="rounded-lg border border-gray-800 bg-gray-900 px-3 py-1.5 font-mono font-bold text-gray-300 text-xs tracking-wider">
               Mastercard
             </div>
             {/* RuPay */}
             <div className="rounded-lg border border-gray-800 bg-gray-900 px-3 py-1.5 font-mono font-bold text-emerald-400 text-xs tracking-wider">
               RuPay
-            </div>
-            {/* Amex */}
-            <div className="rounded-lg border border-gray-800 bg-gray-900 px-3 py-1.5 font-mono font-bold text-cyan-400 text-xs tracking-wider">
-              AMEX
-            </div>
-            {/* UPI */}
-            <div className="rounded-lg border border-gray-800 bg-gray-900 px-3 py-1.5 font-mono font-bold text-emerald-300 text-xs tracking-wider flex items-center gap-1">
-              <span>⚡</span> UPI
-            </div>
-            {/* Google Pay */}
-            <div className="rounded-lg border border-gray-800 bg-gray-900 px-3 py-1.5 font-mono font-bold text-blue-300 text-xs tracking-wider">
-              Google Pay
-            </div>
-            {/* PhonePe */}
-            <div className="rounded-lg border border-gray-800 bg-gray-900 px-3 py-1.5 font-mono font-bold text-purple-400 text-xs tracking-wider">
-              PhonePe
-            </div>
-            {/* Paytm */}
-            <div className="rounded-lg border border-gray-800 bg-gray-900 px-3 py-1.5 font-mono font-bold text-sky-400 text-xs tracking-wider">
-              Paytm
-            </div>
-            {/* Net Banking */}
-            <div className="rounded-lg border border-gray-800 bg-gray-900 px-3 py-1.5 font-mono font-bold text-gray-300 text-xs tracking-wider">
-              NetBanking
-            </div>
-            {/* COD */}
-            <div className="rounded-lg border border-gray-800 bg-gray-900 px-3 py-1.5 font-mono font-bold text-emerald-400 text-xs tracking-wider">
-              COD Available
             </div>
           </div>
         </div>
@@ -86,11 +66,8 @@ export default function Footer() {
       {/* SITEMAP & BRAND LINKS */}
       <div className="mx-auto max-w-7xl py-10 px-4 sm:px-6 lg:px-10 grid grid-cols-2 md:grid-cols-4 gap-8">
         <div>
-          <div className="flex items-center gap-2 mb-3">
-            <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-blue-600 font-black text-white text-xs">
-              S
-            </span>
-            <span className="text-base font-black text-white tracking-tight">ShopSphere</span>
+          <div className="mb-3">
+            <span className="text-2xl font-black text-white tracking-tight">ShopSphere</span>
           </div>
           <p className="text-xs text-gray-400 leading-relaxed mb-3">
             India&apos;s premier multi-category online destination for top-tier electronics, streetwear fashion, gaming rigs, and luxury home essentials.

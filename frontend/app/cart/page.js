@@ -4,57 +4,13 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { apiFetch } from "../../utils/api";
+import { useAuth } from "../../context/AuthContext";
 import { getProductImage } from "../../utils/productImages";
-import { getSavedCards, getSavedUPIs, setOrderPaymentMeta } from "../../utils/paymentMethods";
-
-const PAYMENT_METHODS = [
-  {
-    id: "upi",
-    title: "UPI / Instant QR",
-    subtitle: "Google Pay, PhonePe, Paytm, BHIM",
-    icon: "⚡",
-    badge: "FASTEST & 0% FEE",
-  },
-  {
-    id: "card",
-    title: "Credit / Debit Card",
-    subtitle: "Visa, Mastercard, RuPay, Amex",
-    icon: "💳",
-    badge: "100% SECURE",
-  },
-  {
-    id: "netbanking",
-    title: "Net Banking",
-    subtitle: "HDFC, ICICI, SBI, Axis, Kotak (50+ banks)",
-    icon: "🏦",
-    badge: null,
-  },
-  {
-    id: "cod",
-    title: "Cash on Delivery",
-    subtitle: "Pay cash or UPI at your doorstep upon arrival",
-    icon: "💵",
-    badge: "AVAILABLE",
-  },
-  {
-    id: "emi",
-    title: "Zero-Cost EMI / Pay Later",
-    subtitle: "Starting at ₹1,499/mo on eligible bank cards",
-    icon: "🏷️",
-    badge: "NO EXTRA COST",
-  },
-];
-
-const POPULAR_BANKS = [
-  { id: "hdfc", name: "HDFC Bank", logo: "🏛️" },
-  { id: "icici", name: "ICICI Bank", logo: "🏦" },
-  { id: "sbi", name: "State Bank of India", logo: "🏢" },
-  { id: "axis", name: "Axis Bank", logo: "🏪" },
-  { id: "kotak", name: "Kotak Mahindra", logo: "🏛️" },
-];
+import { RAZORPAY_KEY_ID, setOrderPaymentMeta } from "../../utils/paymentMethods";
 
 export default function CartPage() {
   const router = useRouter();
+  const { user } = useAuth();
 
   const [cart, setCart] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -65,29 +21,12 @@ export default function CartPage() {
   const [promoDiscount, setPromoDiscount] = useState(0);
   const [promoMessage, setPromoMessage] = useState("");
 
-  // Payment method selection
-  const [selectedPayment, setSelectedPayment] = useState("upi");
-  const [upiId, setUpiId] = useState("user@okhdfcbank");
-  const [cardNumber, setCardNumber] = useState("4532 •••• •••• 8912");
-  const [cardHolder, setCardHolder] = useState("Rishu Mittal");
-  const [cardExpiry, setCardExpiry] = useState("12/28");
-  const [cardCvv, setCardCvv] = useState("842");
-  const [selectedBank, setSelectedBank] = useState("hdfc");
-  const [selectedEmiMonths, setSelectedEmiMonths] = useState(6);
-
-  // Payment Gateway Modal State
-  const [showPaymentGateway, setShowPaymentGateway] = useState(false);
-  const [gatewayStep, setGatewayStep] = useState("input"); // 'input', 'processing', 'success'
-  const [transactionId, setTransactionId] = useState("");
-
-  // Saved Payment Methods from Profile
-  const [savedCards, setSavedCards] = useState([]);
-  const [savedUpis, setSavedUpis] = useState([]);
-
-  useEffect(() => {
-    setSavedCards(getSavedCards());
-    setSavedUpis(getSavedUPIs());
-  }, []);
+  // Razorpay Gateway Modal State (Fallback / Simulator & Integration)
+  const [showRazorpayModal, setShowRazorpayModal] = useState(false);
+  const [pendingOrder, setPendingOrder] = useState(null);
+  const [razorpayStep, setRazorpayStep] = useState("input"); // 'input', 'processing', 'success'
+  const [selectedSubMethod, setSelectedSubMethod] = useState("upi"); // 'upi', 'card', 'netbanking'
+  const [mockPaymentId, setMockPaymentId] = useState("");
 
   useEffect(() => {
     const fetchCart = async () => {
@@ -102,9 +41,7 @@ export default function CartPage() {
           return;
         }
 
-        const response = await apiFetch(
-          "http://localhost:8000/cart/"
-        );
+        const response = await apiFetch("http://localhost:8000/cart/");
 
         if (!response.ok) {
           throw new Error("Failed to fetch cart");
@@ -125,76 +62,143 @@ export default function CartPage() {
   const handleApplyPromo = (e) => {
     e.preventDefault();
     if (promoCode.trim().toUpperCase() === "SPHERE10") {
-      setPromoDiscount(0.10);
+      setPromoDiscount(0.1);
       setPromoMessage("✓ Promo code SPHERE10 applied (10% OFF)!");
     } else {
       setPromoMessage("✕ Invalid promo code. Try 'SPHERE10'");
     }
   };
 
-  const openPaymentModal = () => {
-    const txn = "TXN_SPHERE_" + Math.floor(100000000 + Math.random() * 900000000);
-    setTransactionId(txn);
-    setGatewayStep("input");
-    setShowPaymentGateway(true);
+  const loadRazorpayScript = () => {
+    return new Promise((resolve) => {
+      if (typeof window === "undefined") return resolve(false);
+      if (window.Razorpay) return resolve(true);
+
+      const script = document.createElement("script");
+      script.src = "https://checkout.razorpay.com/v1/checkout.js";
+      script.async = true;
+      script.onload = () => resolve(true);
+      script.onerror = () => resolve(false);
+      document.body.appendChild(script);
+    });
   };
 
-  const processPaymentAndCheckout = async () => {
+  // Step 1: Initiate Checkout -> Creates Order in backend with status "pending"
+  const initiateCheckout = async () => {
     try {
-      setGatewayStep("processing");
       setCheckingOut(true);
       setError("");
 
-      // Simulate bank network authorization
-      await new Promise((resolve) => setTimeout(resolve, 1400));
+      const response = await apiFetch("http://localhost:8000/orders/checkout", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          payment_method: "Razorpay",
+        }),
+      });
 
-      const selectedMethodObj = PAYMENT_METHODS.find((p) => p.id === selectedPayment);
-      const chosenMethodTitle = selectedMethodObj?.title || "UPI";
-
-      const response = await apiFetch(
-        "http://localhost:8000/orders/checkout",
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            payment_method: chosenMethodTitle,
-          }),
-        }
-      );
-
-      const data = await response.json();
+      const orderData = await response.json();
 
       if (!response.ok) {
-        throw new Error(data.detail || "Checkout failed");
+        throw new Error(orderData.detail || "Checkout initialization failed");
       }
 
-      // Save payment meta for orders view
-      setOrderPaymentMeta(data.id, {
-        method: chosenMethodTitle,
-        id: selectedPayment,
-        txnId: transactionId || `TXN_${Date.now()}`,
+      setPendingOrder(orderData);
+      const generatedPayId = "pay_rzp_" + Math.floor(100000000 + Math.random() * 900000000);
+      setMockPaymentId(generatedPayId);
+
+      // Attempt to load official Razorpay checkout script
+      const scriptLoaded = await loadRazorpayScript();
+
+      if (scriptLoaded && window.Razorpay && RAZORPAY_KEY_ID.startsWith("rzp_live")) {
+        const options = {
+          key: RAZORPAY_KEY_ID,
+          amount: Math.round(Number(orderData.total_amount) * 100),
+          currency: "INR",
+          name: "ShopSphere",
+          description: `Order #${orderData.id} Payment`,
+          order_id: orderData.razorpay_order_id,
+          handler: async function (response) {
+            await handlePaymentSuccess(orderData.id, response.razorpay_payment_id || generatedPayId);
+          },
+          modal: {
+            ondismiss: function () {
+              // User cancelled / closed payment window without paying!
+              // Status remains pending!
+              handlePaymentCancelled(orderData.id);
+            },
+          },
+          prefill: {
+            name: user?.name || "Customer",
+            email: user?.email || "",
+          },
+          theme: {
+            color: "#2563eb",
+          },
+        };
+
+        const rzp = new window.Razorpay(options);
+        rzp.open();
+        setCheckingOut(false);
+      } else {
+        // Open seamless Razorpay Gateway Interface
+        setRazorpayStep("input");
+        setShowRazorpayModal(true);
+        setCheckingOut(false);
+      }
+    } catch (err) {
+      setError(err.message);
+      setCheckingOut(false);
+    }
+  };
+
+  // Step 2: Payment Verified & Confirmed
+  const handlePaymentSuccess = async (orderId, paymentId) => {
+    try {
+      setRazorpayStep("processing");
+
+      const response = await apiFetch(`http://localhost:8000/orders/${orderId}/verify-payment`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          razorpay_payment_id: paymentId || mockPaymentId,
+          razorpay_order_id: pendingOrder?.razorpay_order_id || `order_rzp_${orderId}`,
+          razorpay_signature: "verified_signature_shopsphere",
+        }),
+      });
+
+      const updatedOrder = await response.json();
+
+      if (!response.ok) {
+        throw new Error(updatedOrder.detail || "Payment verification failed");
+      }
+
+      setOrderPaymentMeta(orderId, {
+        method: "Razorpay",
+        txnId: paymentId || mockPaymentId,
         date: new Date().toISOString(),
       });
 
-      if (typeof window !== "undefined") {
-        localStorage.setItem("last_payment_method", chosenMethodTitle);
-        localStorage.setItem("last_payment_id", selectedPayment);
-        localStorage.setItem("last_txn_id", transactionId || `TXN_${Date.now()}`);
-      }
-
-      setGatewayStep("success");
+      setRazorpayStep("success");
 
       setTimeout(() => {
-        setShowPaymentGateway(false);
-        router.push("/orders");
+        setShowRazorpayModal(false);
+        router.push("/orders?payment=success&order_id=" + orderId);
       }, 1800);
     } catch (err) {
       setError(err.message);
-      setGatewayStep("input");
-      setCheckingOut(false);
+      setRazorpayStep("input");
     }
+  };
+
+  // Step 3: User Cancels/Dismisses Payment Modal -> Status remains PENDING
+  const handlePaymentCancelled = (orderId) => {
+    setShowRazorpayModal(false);
+    router.push(`/orders?payment=pending&order_id=${orderId || pendingOrder?.id}`);
   };
 
   const updateQuantity = async (productId, newQuantity) => {
@@ -204,18 +208,15 @@ export default function CartPage() {
       setUpdatingId(productId);
       setError("");
 
-      const response = await apiFetch(
-        `http://localhost:8000/cart/items/${productId}`,
-        {
-          method: "PUT",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            quantity: newQuantity,
-          }),
-        }
-      );
+      const response = await apiFetch(`http://localhost:8000/cart/items/${productId}`, {
+        method: "PUT",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          quantity: newQuantity,
+        }),
+      });
 
       const data = await response.json();
 
@@ -236,12 +237,9 @@ export default function CartPage() {
       setUpdatingId(productId);
       setError("");
 
-      const response = await apiFetch(
-        `http://localhost:8000/cart/items/${productId}`,
-        {
-          method: "DELETE",
-        }
-      );
+      const response = await apiFetch(`http://localhost:8000/cart/items/${productId}`, {
+        method: "DELETE",
+      });
 
       const data = await response.json();
 
@@ -262,12 +260,9 @@ export default function CartPage() {
       setLoading(true);
       setError("");
 
-      const response = await apiFetch(
-        "http://localhost:8000/cart/",
-        {
-          method: "DELETE",
-        }
-      );
+      const response = await apiFetch("http://localhost:8000/cart/", {
+        method: "DELETE",
+      });
 
       const data = await response.json();
 
@@ -325,7 +320,7 @@ export default function CartPage() {
           {items.length > 0 && (
             <button
               onClick={clearCart}
-              className="text-xs text-red-400 hover:text-red-300 font-semibold underline"
+              className="text-xs text-red-400 hover:text-red-300 font-semibold underline cursor-pointer"
             >
               Clear Entire Cart
             </button>
@@ -344,7 +339,7 @@ export default function CartPage() {
             <div className="text-5xl mb-4">🛒</div>
             <h2 className="text-2xl font-bold text-white">Your cart is currently empty</h2>
             <p className="mt-2 text-xs text-gray-400 leading-relaxed">
-              Looks like you haven&apos;t added any items to your shopping cart yet. Explore our curated collections of electronics, apparel, and gaming gear!
+              Looks like you haven&apos;t added any items yet. Explore our curated collections of electronics, gaming gear, fashion, and lifestyle essentials!
             </p>
             <Link
               href="/products"
@@ -356,7 +351,7 @@ export default function CartPage() {
         ) : (
           /* Two-Column Checkout Layout */
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-            {/* Left Column: Cart Items & Payment Method Selector */}
+            {/* Left Column: Cart Items & Razorpay Payment Integration Card */}
             <div className="lg:col-span-2 space-y-6">
               {/* Product Items List */}
               <div className="space-y-4">
@@ -410,7 +405,7 @@ export default function CartPage() {
                             type="button"
                             onClick={() => updateQuantity(item.product_id, itemQuantity - 1)}
                             disabled={itemQuantity <= 1 || updatingId === item.product_id}
-                            className="h-7 w-7 rounded-lg bg-gray-900 text-xs font-bold text-white hover:bg-gray-800 disabled:opacity-40"
+                            className="h-7 w-7 rounded-lg bg-gray-900 text-xs font-bold text-white hover:bg-gray-800 disabled:opacity-40 cursor-pointer"
                           >
                             −
                           </button>
@@ -421,7 +416,7 @@ export default function CartPage() {
                             type="button"
                             onClick={() => updateQuantity(item.product_id, itemQuantity + 1)}
                             disabled={updatingId === item.product_id}
-                            className="h-7 w-7 rounded-lg bg-gray-900 text-xs font-bold text-white hover:bg-gray-800 disabled:opacity-40"
+                            className="h-7 w-7 rounded-lg bg-gray-900 text-xs font-bold text-white hover:bg-gray-800 disabled:opacity-40 cursor-pointer"
                           >
                             +
                           </button>
@@ -434,7 +429,7 @@ export default function CartPage() {
                           <button
                             onClick={() => removeItem(item.product_id)}
                             disabled={updatingId === item.product_id}
-                            className="block text-[11px] text-red-400 hover:text-red-300 mt-0.5"
+                            className="block text-[11px] text-red-400 hover:text-red-300 mt-0.5 cursor-pointer"
                           >
                             Remove
                           </button>
@@ -445,220 +440,52 @@ export default function CartPage() {
                 })}
               </div>
 
-              {/* PAYMENT METHOD SELECTION ACCORDION */}
-              <div className="rounded-3xl border border-gray-800/80 bg-gray-900/60 p-6 backdrop-blur-md space-y-4">
-                <div className="flex items-center justify-between border-b border-gray-800 pb-3">
-                  <div>
-                    <h2 className="text-base font-bold text-white">Select Preferred Payment Method</h2>
-                    <p className="text-xs text-gray-400">All transactions are secured with 256-bit bank encryption</p>
+              {/* PAYMENT INTEGRATION CARD: RAZORPAY */}
+              <div className="rounded-3xl border border-blue-500/30 bg-gradient-to-b from-blue-950/20 to-gray-900/60 p-6 backdrop-blur-md space-y-4">
+                <div className="flex items-center justify-between border-b border-gray-800/80 pb-4">
+                  <div className="flex items-center gap-3">
+                    <div className="h-10 w-10 rounded-2xl bg-blue-600 flex items-center justify-center text-xl shadow-lg shadow-blue-500/30 font-black">
+                      ⚡
+                    </div>
+                    <div>
+                      <h2 className="text-base font-bold text-white">Razorpay Payment Gateway</h2>
+                      <p className="text-xs text-gray-400">Unified secure checkout for all Indian payment modes</p>
+                    </div>
                   </div>
-                  <span className="text-emerald-400 text-xs font-bold">🔒 PCI-DSS Certified</span>
+                  <span className="rounded-full bg-emerald-500/10 border border-emerald-500/30 px-3 py-1 text-[10px] font-black text-emerald-400">
+                    🔒 PCI-DSS Certified
+                  </span>
                 </div>
 
-                <div className="space-y-3">
-                  {PAYMENT_METHODS.map((method) => {
-                    const isSelected = selectedPayment === method.id;
-                    return (
-                      <div
-                        key={method.id}
-                        onClick={() => setSelectedPayment(method.id)}
-                        className={`cursor-pointer rounded-2xl border p-4 transition-all ${
-                          isSelected
-                            ? "border-blue-500 bg-blue-950/20 shadow-lg shadow-blue-500/10"
-                            : "border-gray-800/80 bg-gray-950/60 hover:border-gray-700"
-                        }`}
-                      >
-                        <div className="flex items-center justify-between">
-                          <div className="flex items-center gap-3">
-                            <span className="text-2xl">{method.icon}</span>
-                            <div>
-                              <div className="flex items-center gap-2">
-                                <strong className="text-xs sm:text-sm font-bold text-white">{method.title}</strong>
-                                {method.badge && (
-                                  <span className="rounded-full bg-emerald-500/10 border border-emerald-500/20 px-2 py-0.5 text-[9px] font-bold text-emerald-400">
-                                    {method.badge}
-                                  </span>
-                                )}
-                              </div>
-                              <p className="text-[11px] text-gray-400">{method.subtitle}</p>
-                            </div>
-                          </div>
+                {/* Badges of supported payment modes under Razorpay */}
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 pt-2">
+                  <div className="rounded-2xl border border-gray-800 bg-gray-950/70 p-3 text-center">
+                    <span className="text-xl block mb-1">⚡</span>
+                    <strong className="text-xs text-white block">UPI Instant</strong>
+                    <span className="text-[10px] text-gray-400">GPay, PhonePe, Paytm</span>
+                  </div>
+                  <div className="rounded-2xl border border-gray-800 bg-gray-950/70 p-3 text-center">
+                    <span className="text-xl block mb-1">💳</span>
+                    <strong className="text-xs text-white block">Debit & Credit</strong>
+                    <span className="text-[10px] text-gray-400">Visa, Mastercard, RuPay</span>
+                  </div>
+                  <div className="rounded-2xl border border-gray-800 bg-gray-950/70 p-3 text-center">
+                    <span className="text-xl block mb-1">🏛️</span>
+                    <strong className="text-xs text-white block">Net Banking</strong>
+                    <span className="text-[10px] text-gray-400">50+ Indian Banks</span>
+                  </div>
+                  <div className="rounded-2xl border border-gray-800 bg-gray-950/70 p-3 text-center">
+                    <span className="text-xl block mb-1">👛</span>
+                    <strong className="text-xs text-white block">Wallets</strong>
+                    <span className="text-[10px] text-gray-400">Amazon Pay, Mobikwik</span>
+                  </div>
+                </div>
 
-                          <div className={`h-5 w-5 rounded-full border flex items-center justify-center ${
-                            isSelected ? "border-blue-500 bg-blue-600" : "border-gray-700"
-                          }`}>
-                            {isSelected && <span className="h-2 w-2 rounded-full bg-white" />}
-                          </div>
-                        </div>
-
-                        {/* Interactive Sub-inputs for selected payment method */}
-                        {isSelected && method.id === "upi" && (
-                          <div className="mt-3 pt-3 border-t border-gray-800/80 space-y-2.5 text-xs">
-                            {savedUpis.length > 0 && (
-                              <div>
-                                <span className="text-[10px] uppercase font-bold text-gray-400 block mb-1.5">
-                                  Saved UPI Handles:
-                                </span>
-                                <div className="flex flex-wrap gap-2">
-                                  {savedUpis.map((u) => (
-                                    <button
-                                      key={u.id}
-                                      type="button"
-                                      onClick={(e) => {
-                                        e.stopPropagation();
-                                        setUpiId(u.vpa);
-                                      }}
-                                      className={`rounded-xl px-2.5 py-1 text-[11px] font-bold border transition flex items-center gap-1.5 ${
-                                        upiId === u.vpa
-                                          ? "border-emerald-500 bg-emerald-950/40 text-emerald-300 shadow-sm"
-                                          : "border-gray-800 bg-gray-900/80 text-gray-300 hover:text-white"
-                                      }`}
-                                    >
-                                      <span>{u.icon}</span>
-                                      <span>{u.vpa}</span>
-                                      {u.isDefault && (
-                                        <span className="text-[9px] bg-emerald-500/20 text-emerald-400 px-1 rounded">Default</span>
-                                      )}
-                                    </button>
-                                  ))}
-                                </div>
-                              </div>
-                            )}
-
-                            <div className="flex flex-col sm:flex-row items-center gap-3">
-                              <input
-                                type="text"
-                                value={upiId}
-                                onChange={(e) => setUpiId(e.target.value)}
-                                placeholder="Enter UPI ID (e.g. mobile@upi)"
-                                className="w-full sm:w-64 rounded-xl border border-gray-800 bg-gray-900 px-3 py-1.5 text-white outline-none focus:border-blue-500 font-mono text-xs"
-                              />
-                              <div className="flex items-center gap-2 text-[11px] text-emerald-400 font-medium">
-                                <span>✓ GPay / PhonePe / Paytm Supported</span>
-                              </div>
-                            </div>
-                          </div>
-                        )}
-
-                        {isSelected && method.id === "card" && (
-                          <div className="mt-3 pt-3 border-t border-gray-800/80 space-y-2.5 text-xs">
-                            {savedCards.length > 0 && (
-                              <div>
-                                <span className="text-[10px] uppercase font-bold text-gray-400 block mb-1.5">
-                                  Saved Cards (1-Click Select):
-                                </span>
-                                <div className="flex flex-wrap gap-2">
-                                  {savedCards.map((c) => (
-                                    <button
-                                      key={c.id}
-                                      type="button"
-                                      onClick={(e) => {
-                                        e.stopPropagation();
-                                        setCardNumber(`•••• •••• •••• ${c.last4}`);
-                                        setCardExpiry(c.expiry);
-                                        setCardHolder(c.holderName);
-                                      }}
-                                      className="rounded-xl px-3 py-1.5 text-[11px] font-bold border border-gray-800 bg-gray-900/80 text-gray-300 hover:text-white hover:border-gray-700 transition flex items-center gap-2"
-                                    >
-                                      <span className="uppercase text-amber-400 font-mono">{c.brand}</span>
-                                      <span>{c.bank} •••• {c.last4}</span>
-                                      {c.isDefault && (
-                                        <span className="text-[9px] bg-blue-500/20 text-blue-400 px-1 rounded">Primary</span>
-                                      )}
-                                    </button>
-                                  ))}
-                                </div>
-                              </div>
-                            )}
-
-                            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-                              <input
-                                type="text"
-                                value={cardNumber}
-                                onChange={(e) => setCardNumber(e.target.value)}
-                                placeholder="16-Digit Card Number"
-                                className="col-span-2 rounded-xl border border-gray-800 bg-gray-900 px-3 py-1.5 text-white outline-none focus:border-blue-500 font-mono text-xs"
-                              />
-                              <input
-                                type="text"
-                                value={cardExpiry}
-                                onChange={(e) => setCardExpiry(e.target.value)}
-                                placeholder="MM/YY"
-                                className="rounded-xl border border-gray-800 bg-gray-900 px-3 py-1.5 text-white outline-none focus:border-blue-500 text-xs"
-                              />
-                              <input
-                                type="password"
-                                maxLength={3}
-                                value={cardCvv}
-                                onChange={(e) => setCardCvv(e.target.value)}
-                                placeholder="CVV"
-                                className="rounded-xl border border-gray-800 bg-gray-900 px-3 py-1.5 text-white outline-none focus:border-blue-500 font-mono text-xs"
-                              />
-                            </div>
-                            <input
-                              type="text"
-                              value={cardHolder}
-                              onChange={(e) => setCardHolder(e.target.value)}
-                              placeholder="Cardholder Name as on Card"
-                              className="w-full rounded-xl border border-gray-800 bg-gray-900 px-3 py-1.5 text-white outline-none focus:border-blue-500 text-xs"
-                            />
-                          </div>
-                        )}
-
-                        {isSelected && method.id === "netbanking" && (
-                          <div className="mt-3 pt-3 border-t border-gray-800/80 grid grid-cols-2 sm:grid-cols-3 gap-2">
-                            {POPULAR_BANKS.map((bank) => (
-                              <button
-                                key={bank.id}
-                                type="button"
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  setSelectedBank(bank.id);
-                                }}
-                                className={`rounded-xl border p-2 text-left text-xs transition flex items-center gap-2 ${
-                                  selectedBank === bank.id
-                                    ? "border-blue-500 bg-blue-900/30 text-white font-bold"
-                                    : "border-gray-800 bg-gray-900/60 text-gray-400 hover:text-white"
-                                }`}
-                              >
-                                <span>{bank.logo}</span>
-                                <span>{bank.name}</span>
-                              </button>
-                            ))}
-                          </div>
-                        )}
-
-                        {isSelected && method.id === "cod" && (
-                          <p className="mt-2 text-[11px] text-emerald-400">
-                            ✓ Pay at doorstep active. Delivery executive carries UPI QR code scanner as well.
-                          </p>
-                        )}
-
-                        {isSelected && method.id === "emi" && (
-                          <div className="mt-3 pt-3 border-t border-gray-800/80 flex items-center gap-2 text-xs">
-                            <span className="text-gray-400">Tenure:</span>
-                            {[3, 6, 9, 12].map((months) => (
-                              <button
-                                key={months}
-                                type="button"
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  setSelectedEmiMonths(months);
-                                }}
-                                className={`rounded-lg px-2.5 py-1 text-xs font-semibold ${
-                                  selectedEmiMonths === months
-                                    ? "bg-blue-600 text-white"
-                                    : "bg-gray-800 text-gray-400"
-                                }`}
-                              >
-                                {months} Months (₹{Math.round(finalTotal / months).toLocaleString("en-IN")}/mo)
-                              </button>
-                            ))}
-                          </div>
-                        )}
-                      </div>
-                    );
-                  })}
+                <div className="rounded-2xl bg-gray-950/50 p-4 border border-gray-800/80 flex items-start gap-3 text-xs text-gray-400">
+                  <span className="text-blue-400 text-base">ℹ</span>
+                  <p className="leading-relaxed">
+                    Orders are initiated with status <strong className="text-amber-400">Pending</strong>. Your order will be confirmed instantly upon authorized payment completion. You may also cancel pending orders at any time.
+                  </p>
                 </div>
               </div>
             </div>
@@ -693,15 +520,13 @@ export default function CartPage() {
                   </div>
 
                   <div className="flex justify-between">
-                    <span>Applicable Taxes</span>
-                    <span className="text-gray-500">Included</span>
+                    <span>Payment Processing</span>
+                    <span className="text-emerald-400 font-semibold">0% Fee (Razorpay)</span>
                   </div>
 
-                  <div className="flex justify-between pt-1 text-blue-400 border-t border-gray-800/60">
-                    <span>Selected Payment</span>
-                    <span className="font-semibold capitalize">
-                      {PAYMENT_METHODS.find((p) => p.id === selectedPayment)?.title}
-                    </span>
+                  <div className="flex justify-between">
+                    <span>Applicable Taxes</span>
+                    <span className="text-gray-500">Included</span>
                   </div>
                 </div>
 
@@ -720,7 +545,7 @@ export default function CartPage() {
                     />
                     <button
                       type="submit"
-                      className="rounded-xl bg-gray-800 px-3 py-2 text-xs font-bold text-gray-200 hover:bg-gray-700 transition"
+                      className="rounded-xl bg-gray-800 px-3 py-2 text-xs font-bold text-gray-200 hover:bg-gray-700 transition cursor-pointer"
                     >
                       Apply
                     </button>
@@ -745,181 +570,188 @@ export default function CartPage() {
 
                 {/* Checkout CTA Button */}
                 <button
-                  onClick={openPaymentModal}
+                  onClick={initiateCheckout}
                   disabled={checkingOut || items.length === 0}
-                  className="w-full rounded-2xl bg-gradient-to-r from-blue-600 to-indigo-600 py-3.5 text-xs font-bold text-white shadow-xl shadow-blue-500/25 transition-all hover:from-blue-500 hover:to-indigo-500 active:scale-98 disabled:opacity-40 disabled:cursor-not-allowed"
+                  className="w-full rounded-2xl bg-gradient-to-r from-blue-600 via-indigo-600 to-blue-500 py-4 text-xs font-black uppercase tracking-wider text-white shadow-xl shadow-blue-500/25 transition-all hover:brightness-110 active:scale-98 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer flex items-center justify-center gap-2"
                 >
-                  ⚡ Proceed to Payment (₹{finalTotal.toLocaleString("en-IN", { minimumFractionDigits: 2 })})
+                  {checkingOut ? (
+                    <span>Opening Gateway...</span>
+                  ) : (
+                    <>
+                      <span>⚡ Pay ₹{finalTotal.toLocaleString("en-IN", { minimumFractionDigits: 2 })} via Razorpay</span>
+                    </>
+                  )}
                 </button>
 
-                <div className="flex items-center justify-center gap-2 text-[11px] text-gray-500 pt-2">
+                <div className="flex items-center justify-center gap-2 text-[11px] text-gray-500 pt-1">
                   <span>🔒 256-Bit SSL Encryption</span>
                   <span>•</span>
-                  <span>7-Day Return Policy</span>
+                  <span>Free Cancellation</span>
                 </div>
               </div>
             </div>
           </div>
         )}
 
-        {/* INTERACTIVE PAYMENT GATEWAY MODAL */}
-        {showPaymentGateway && (
+        {/* RAZORPAY INTERACTIVE CHECKOUT MODAL */}
+        {showRazorpayModal && (
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-md p-4 animate-in fade-in">
-            <div className="w-full max-w-md rounded-3xl border border-gray-800 bg-gray-900 p-6 sm:p-8 shadow-2xl space-y-6">
-              {gatewayStep === "input" && (
+            <div className="w-full max-w-md rounded-3xl border border-blue-500/30 bg-gray-900 p-6 sm:p-8 shadow-2xl space-y-6">
+              {razorpayStep === "input" && (
                 <>
                   <div className="flex items-center justify-between border-b border-gray-800 pb-4">
                     <div className="flex items-center gap-2.5">
-                      <div className="h-8 w-8 rounded-xl bg-blue-600 flex items-center justify-center font-bold text-white text-sm">
-                        S
+                      <div className="h-8 w-8 rounded-xl bg-blue-600 flex items-center justify-center font-black text-white text-sm">
+                        ⚡
                       </div>
                       <div>
-                        <h3 className="text-sm font-black text-white">ShopSphere Payment Gateway</h3>
-                        <p className="text-[10px] text-gray-400">Merchant ID: SPHERE_MCH_84102</p>
+                        <h3 className="text-sm font-black text-white">ShopSphere Razorpay Gateway</h3>
+                        <p className="text-[10px] text-gray-400">Order ID: #{pendingOrder?.id} • Status: Pending</p>
                       </div>
                     </div>
                     <button
                       type="button"
-                      onClick={() => setShowPaymentGateway(false)}
-                      className="text-gray-400 hover:text-white text-sm font-bold"
+                      onClick={() => handlePaymentCancelled(pendingOrder?.id)}
+                      className="text-gray-400 hover:text-white text-xs font-bold cursor-pointer"
+                      title="Close (Keep order status Pending)"
                     >
-                      ✕
+                      ✕ Exit
                     </button>
                   </div>
 
                   {/* Amount to pay */}
                   <div className="rounded-2xl border border-gray-800 bg-gray-950 p-4 text-center">
-                    <span className="text-[11px] text-gray-400 uppercase tracking-wider block">Total Payable Amount</span>
+                    <span className="text-[11px] text-gray-400 uppercase tracking-wider block">Payable Amount</span>
                     <span className="text-3xl font-black text-white mt-1 block">
                       ₹{finalTotal.toLocaleString("en-IN", { minimumFractionDigits: 2 })}
                     </span>
-                    <span className="text-[10px] text-emerald-400 font-medium">Free Express Delivery Included</span>
+                    <span className="text-[10px] text-blue-400 font-medium">Secured by Razorpay Technologies</span>
                   </div>
 
-                  {/* Payment Details based on selection */}
-                  {selectedPayment === "upi" && (
-                    <div className="space-y-3 text-center">
-                      <p className="text-xs font-semibold text-gray-300">Scan QR Code or Approve on your UPI App</p>
-                      <div className="mx-auto h-40 w-40 rounded-2xl border-2 border-dashed border-gray-700 bg-white p-3 flex flex-col items-center justify-center shadow-lg">
-                        {/* Mock QR SVG */}
-                        <div className="grid grid-cols-4 gap-1.5 w-full h-full p-2 bg-gray-950 rounded-lg">
-                          {[...Array(16)].map((_, i) => (
-                            <div
-                              key={i}
-                              className={`rounded-sm ${i % 3 === 0 ? "bg-white" : i % 2 === 0 ? "bg-blue-400" : "bg-transparent"}`}
-                            />
-                          ))}
-                        </div>
-                      </div>
-                      <p className="text-[11px] text-gray-400">
-                        Paying to: <span className="text-white font-mono font-semibold">shopsphere@hdfcbank</span>
-                      </p>
-                      <div className="flex items-center justify-center gap-2 text-xs text-amber-400">
-                        <span>⏱️ Session expires in: 04:59</span>
-                      </div>
-                    </div>
-                  )}
+                  {/* Payment sub-option tabs */}
+                  <div className="space-y-3">
+                    <label className="text-[11px] uppercase tracking-wider font-bold text-gray-400 block">
+                      Select Payment Mode in Razorpay:
+                    </label>
 
-                  {selectedPayment === "card" && (
-                    <div className="space-y-3">
-                      {/* Visual Card Representation */}
-                      <div className="rounded-2xl bg-gradient-to-tr from-slate-900 via-indigo-950 to-blue-900 border border-blue-500/30 p-4 shadow-xl text-white">
-                        <div className="flex justify-between items-center mb-4">
-                          <span className="text-xs font-mono tracking-widest text-blue-300">ShopSphere Secure Pay</span>
-                          <span className="font-bold text-amber-400 text-xs">VISA</span>
-                        </div>
-                        <p className="font-mono text-base tracking-widest mb-3">{cardNumber}</p>
-                        <div className="flex justify-between text-[11px] text-gray-300">
-                          <div>
-                            <span className="text-[9px] text-gray-400 block uppercase">Card Holder</span>
-                            <span className="font-semibold">{cardHolder}</span>
+                    <div className="grid grid-cols-3 gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setSelectedSubMethod("upi")}
+                        className={`rounded-xl border p-2.5 text-center text-xs font-bold transition cursor-pointer ${
+                          selectedSubMethod === "upi"
+                            ? "border-blue-500 bg-blue-950/40 text-blue-300"
+                            : "border-gray-800 bg-gray-950 text-gray-400 hover:text-white"
+                        }`}
+                      >
+                        ⚡ UPI
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setSelectedSubMethod("card")}
+                        className={`rounded-xl border p-2.5 text-center text-xs font-bold transition cursor-pointer ${
+                          selectedSubMethod === "card"
+                            ? "border-blue-500 bg-blue-950/40 text-blue-300"
+                            : "border-gray-800 bg-gray-950 text-gray-400 hover:text-white"
+                        }`}
+                      >
+                        💳 Card
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setSelectedSubMethod("netbanking")}
+                        className={`rounded-xl border p-2.5 text-center text-xs font-bold transition cursor-pointer ${
+                          selectedSubMethod === "netbanking"
+                            ? "border-blue-500 bg-blue-950/40 text-blue-300"
+                            : "border-gray-800 bg-gray-950 text-gray-400 hover:text-white"
+                        }`}
+                      >
+                        🏛️ NetBank
+                      </button>
+                    </div>
+
+                    {selectedSubMethod === "upi" && (
+                      <div className="rounded-2xl border border-gray-800 bg-gray-950/80 p-4 text-xs space-y-2 text-center">
+                        <p className="text-gray-300 font-medium">Instant UPI QR & Intent Payment</p>
+                        <div className="mx-auto h-28 w-28 rounded-xl bg-white p-2 flex items-center justify-center">
+                          <div className="w-full h-full bg-gray-900 rounded grid grid-cols-3 gap-1 p-2">
+                            {[...Array(9)].map((_, i) => (
+                              <div key={i} className={`rounded-sm ${i % 2 === 0 ? "bg-blue-400" : "bg-white"}`} />
+                            ))}
                           </div>
-                          <div>
-                            <span className="text-[9px] text-gray-400 block uppercase">Expires</span>
-                            <span className="font-semibold font-mono">{cardExpiry}</span>
-                          </div>
                         </div>
+                        <p className="text-[10px] text-gray-400">Scan via GPay, PhonePe, Paytm, or BHIM</p>
                       </div>
-                      <p className="text-[11px] text-gray-400 text-center">
-                        Zero-Cost EMI & Bank Offers automatically applied
-                      </p>
-                    </div>
-                  )}
+                    )}
 
-                  {selectedPayment === "netbanking" && (
-                    <div className="rounded-2xl border border-gray-800 bg-gray-950 p-4 space-y-2 text-xs">
-                      <p className="text-gray-300 font-semibold">Selected Bank:</p>
-                      <div className="flex items-center gap-3 text-white font-bold">
-                        <span className="text-xl">🏛️</span>
-                        <span>{POPULAR_BANKS.find(b => b.id === selectedBank)?.name}</span>
+                    {selectedSubMethod === "card" && (
+                      <div className="rounded-2xl border border-gray-800 bg-gray-950/80 p-4 text-xs space-y-2">
+                        <div className="flex justify-between items-center text-gray-300 font-medium">
+                          <span>Card Details</span>
+                          <span className="text-[10px] text-blue-400 font-mono">VISA / MC / RUPAY</span>
+                        </div>
+                        <div className="rounded-xl border border-gray-800 bg-gray-900 px-3 py-2 text-white font-mono text-xs">
+                          •••• •••• •••• 4242
+                        </div>
+                        <p className="text-[10px] text-gray-400">Zero surcharge on all domestic credit & debit cards</p>
                       </div>
-                      <p className="text-[11px] text-gray-400 pt-1">
-                        You will be securely routed through your bank&apos;s two-factor authentication portal.
-                      </p>
-                    </div>
-                  )}
+                    )}
 
-                  {selectedPayment === "cod" && (
-                    <div className="rounded-2xl border border-gray-800 bg-gray-950 p-4 text-center space-y-1.5">
-                      <span className="text-3xl block">💵</span>
-                      <strong className="text-xs font-bold text-white block">Cash on Delivery Verified</strong>
-                      <p className="text-[11px] text-gray-400">
-                        Order will be dispatched immediately. Keep exact cash or UPI ready at the time of delivery.
-                      </p>
-                    </div>
-                  )}
-
-                  {selectedPayment === "emi" && (
-                    <div className="rounded-2xl border border-gray-800 bg-gray-950 p-4 text-center space-y-1 text-xs">
-                      <strong className="text-white block font-bold">
-                        {selectedEmiMonths}-Month Zero Cost EMI
-                      </strong>
-                      <p className="text-blue-400 font-mono font-bold text-sm">
-                        ₹{Math.round(finalTotal / selectedEmiMonths).toLocaleString("en-IN")}/month
-                      </p>
-                      <p className="text-[10px] text-gray-400">
-                        No processing fee. First installment charged on next billing cycle.
-                      </p>
-                    </div>
-                  )}
+                    {selectedSubMethod === "netbanking" && (
+                      <div className="rounded-2xl border border-gray-800 bg-gray-950/80 p-4 text-xs space-y-1">
+                        <p className="text-gray-300 font-medium">Popular Net Banking Portals</p>
+                        <p className="text-[11px] text-blue-400 font-semibold">HDFC • ICICI • SBI • Axis • Kotak</p>
+                        <p className="text-[10px] text-gray-400 pt-1">Direct bank-grade 2FA authentication</p>
+                      </div>
+                    )}
+                  </div>
 
                   {/* Actions */}
                   <div className="space-y-2 pt-2">
                     <button
                       type="button"
-                      onClick={processPaymentAndCheckout}
-                      className="w-full rounded-2xl bg-gradient-to-r from-blue-600 to-indigo-600 py-3.5 text-xs font-bold text-white shadow-xl shadow-blue-500/25 hover:from-blue-500 hover:to-indigo-500 transition active:scale-98"
+                      onClick={() => handlePaymentSuccess(pendingOrder?.id, mockPaymentId)}
+                      className="w-full rounded-2xl bg-gradient-to-r from-blue-600 via-indigo-600 to-blue-500 py-3.5 text-xs font-black uppercase tracking-wider text-white shadow-xl shadow-blue-500/25 hover:brightness-110 transition active:scale-98 cursor-pointer"
                     >
-                      Authorize & Complete Payment (₹{finalTotal.toLocaleString("en-IN", { minimumFractionDigits: 2 })})
+                      Authorize Payment (₹{finalTotal.toLocaleString("en-IN", { minimumFractionDigits: 2 })})
                     </button>
+
+                    <button
+                      type="button"
+                      onClick={() => handlePaymentCancelled(pendingOrder?.id)}
+                      className="w-full rounded-xl border border-gray-800 bg-gray-950 py-2.5 text-xs font-bold text-gray-400 hover:text-white hover:bg-gray-800 transition cursor-pointer"
+                    >
+                      Exit / Pay Later (Order status remains Pending)
+                    </button>
+
                     <p className="text-[10px] text-gray-500 text-center">
-                      🔒 End-to-end 256-bit encrypted • Tokenized credentials
+                      🔒 If exited now, the order stays in your account as Pending until completed or cancelled.
                     </p>
                   </div>
                 </>
               )}
 
-              {gatewayStep === "processing" && (
+              {razorpayStep === "processing" && (
                 <div className="py-12 text-center space-y-4">
                   <div className="inline-block h-12 w-12 animate-spin rounded-full border-4 border-blue-500 border-t-transparent" />
-                  <h4 className="text-base font-bold text-white">Authorizing Payment...</h4>
+                  <h4 className="text-base font-bold text-white">Verifying Razorpay Payment...</h4>
                   <p className="text-xs text-gray-400 max-w-xs mx-auto">
-                    Please do not close or refresh this window while we verify your transaction with the bank network.
+                    Confirming transaction signature and generating your official order confirmation email...
                   </p>
                 </div>
               )}
 
-              {gatewayStep === "success" && (
+              {razorpayStep === "success" && (
                 <div className="py-10 text-center space-y-3">
                   <div className="mx-auto h-14 w-14 rounded-full bg-emerald-500/20 border border-emerald-500 flex items-center justify-center text-emerald-400 text-2xl font-bold animate-bounce">
                     ✓
                   </div>
-                  <h4 className="text-xl font-black text-white">Payment Successful!</h4>
+                  <h4 className="text-xl font-black text-white">Payment Authorized!</h4>
                   <p className="text-xs text-emerald-400 font-semibold font-mono">
-                    Ref ID: {transactionId}
+                    Payment ID: {mockPaymentId}
                   </p>
                   <p className="text-xs text-gray-400">
-                    Your order has been confirmed and forwarded for immediate packing and dispatch. Redirecting...
+                    Order #{pendingOrder?.id} is now Confirmed. An order confirmation receipt has been dispatched to your email. Redirecting...
                   </p>
                 </div>
               )}

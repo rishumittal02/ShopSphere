@@ -1,18 +1,19 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useEffect, useState, Suspense } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { apiFetch } from "../../utils/api";
+import { useAuth } from "../../context/AuthContext";
 import { getProductImage } from "../../utils/productImages";
-import { getPaymentBadge, getOrderPaymentMeta } from "../../utils/paymentMethods";
+import { getPaymentBadge, getOrderPaymentMeta, setOrderPaymentMeta } from "../../utils/paymentMethods";
 
 const STATUS_CONFIG = {
   pending: {
     bg: "bg-amber-500/10",
     text: "text-amber-400",
     border: "border-amber-500/30",
-    label: "Processing",
+    label: "Payment Pending",
     step: 1,
   },
   confirmed: {
@@ -45,41 +46,141 @@ const STATUS_CONFIG = {
   },
 };
 
-export default function OrdersPage() {
+function OrdersContent() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const { user } = useAuth();
 
   const [orders, setOrders] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [actionNotice, setActionNotice] = useState("");
   const [selectedInvoiceOrder, setSelectedInvoiceOrder] = useState(null);
 
+  // Cancellation Modal State
+  const [orderToCancel, setOrderToCancel] = useState(null);
+  const [cancelling, setCancelling] = useState(false);
+
+  // Retry / Complete Payment Modal State
+  const [payingOrder, setPayingOrder] = useState(null);
+  const [paymentProcessing, setPaymentProcessing] = useState(false);
+
   useEffect(() => {
-    const fetchOrders = async () => {
-      try {
-        const token = typeof window !== "undefined" ? localStorage.getItem("access_token") : null;
+    const paymentStatus = searchParams.get("payment");
+    const orderId = searchParams.get("order_id");
 
-        if (!token) {
-          router.push("/login");
-          return;
-        }
+    if (paymentStatus === "pending") {
+      setActionNotice(
+        `Notice: Payment for Order #${orderId || ""} was not finalized. Its status remains "Pending" below. You can complete payment at any time or cancel the order.`
+      );
+    } else if (paymentStatus === "success") {
+      setActionNotice(
+        `Success: Payment verified! Order #${orderId || ""} is confirmed and an order confirmation email has been dispatched to your inbox.`
+      );
+    }
+  }, [searchParams]);
 
-        const response = await apiFetch("http://localhost:8000/orders/");
+  const fetchOrders = async () => {
+    try {
+      const token = typeof window !== "undefined" ? localStorage.getItem("access_token") : null;
 
-        if (!response.ok) {
-          throw new Error("Failed to fetch order history");
-        }
-
-        const data = await response.json();
-        setOrders(data);
-      } catch (err) {
-        setError(err.message);
-      } finally {
-        setLoading(false);
+      if (!token) {
+        router.push("/login");
+        return;
       }
-    };
 
+      const response = await apiFetch("http://localhost:8000/orders/");
+
+      if (!response.ok) {
+        throw new Error("Failed to fetch order history");
+      }
+
+      const data = await response.json();
+      setOrders(data);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
     fetchOrders();
   }, [router]);
+
+  // Handle Order Cancellation by user
+  const handleConfirmCancel = async () => {
+    if (!orderToCancel) return;
+    try {
+      setCancelling(true);
+      setError("");
+
+      const response = await apiFetch(`http://localhost:8000/orders/${orderToCancel.id}/cancel`, {
+        method: "POST",
+      });
+
+      const updated = await response.json();
+
+      if (!response.ok) {
+        throw new Error(updated.detail || "Failed to cancel order");
+      }
+
+      setOrders((prev) =>
+        prev.map((o) => (o.id === orderToCancel.id ? { ...o, status: "cancelled" } : o))
+      );
+      setActionNotice(`Order #${orderToCancel.id} has been cancelled successfully. All items were returned to stock.`);
+      setOrderToCancel(null);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setCancelling(false);
+    }
+  };
+
+  // Handle Complete Payment for a Pending Order
+  const handleCompletePayment = async (order) => {
+    try {
+      setPaymentProcessing(true);
+      setPayingOrder(order);
+
+      const mockPayId = "pay_rzp_" + Math.floor(100000000 + Math.random() * 900000000);
+
+      const response = await apiFetch(`http://localhost:8000/orders/${order.id}/verify-payment`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          razorpay_payment_id: mockPayId,
+          razorpay_order_id: order.razorpay_order_id || `order_rzp_${order.id}`,
+          razorpay_signature: "signature_verified_shopsphere",
+        }),
+      });
+
+      const updated = await response.json();
+
+      if (!response.ok) {
+        throw new Error(updated.detail || "Payment completion failed");
+      }
+
+      setOrderPaymentMeta(order.id, {
+        method: "Razorpay",
+        txnId: mockPayId,
+        date: new Date().toISOString(),
+      });
+
+      setOrders((prev) =>
+        prev.map((o) => (o.id === order.id ? { ...o, status: "confirmed", payment_method: "Razorpay", payment_id: mockPayId } : o))
+      );
+
+      setActionNotice(`Payment completed for Order #${order.id}! Status is now Confirmed, and confirmation email has been dispatched.`);
+      setPayingOrder(null);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setPaymentProcessing(false);
+    }
+  };
 
   if (loading) {
     return (
@@ -105,7 +206,7 @@ export default function OrdersPage() {
           <p className="mt-2 text-xs text-gray-400">{error}</p>
           <button
             onClick={() => window.location.reload()}
-            className="mt-5 rounded-full bg-red-600 px-6 py-2.5 text-xs font-semibold text-white hover:bg-red-500 transition shadow-md"
+            className="mt-5 rounded-full bg-red-600 px-6 py-2.5 text-xs font-semibold text-white hover:bg-red-500 transition shadow-md cursor-pointer"
           >
             Retry
           </button>
@@ -117,26 +218,43 @@ export default function OrdersPage() {
   return (
     <main className="min-h-screen bg-gray-950 px-4 sm:px-6 lg:px-10 py-10 text-white">
       <div className="mx-auto max-w-5xl">
-        <div className="flex flex-wrap items-center justify-between gap-4 mb-8">
+        {/* Header */}
+        <div className="flex flex-wrap items-center justify-between gap-4 mb-6">
           <div>
             <span className="text-xs font-bold uppercase tracking-wider text-blue-400">
-              Customer Account
+              Customer Orders
             </span>
             <h1 className="text-3xl sm:text-4xl font-black text-white tracking-tight mt-1">
               Your Orders ({orders.length})
             </h1>
             <p className="mt-1.5 text-xs sm:text-sm text-gray-400">
-              Track live dispatch status, review verified payment receipts, and download tax invoices.
+              Review order progress, complete pending payments, cancel orders, or download tax invoices.
             </p>
           </div>
 
           <Link
-            href="/profile?tab=payments"
-            className="rounded-2xl border border-gray-800 bg-gray-900/80 px-4 py-2.5 text-xs font-bold text-gray-200 hover:text-white hover:bg-gray-800 transition flex items-center gap-2"
+            href="/products"
+            className="rounded-2xl border border-gray-800 bg-gray-900/80 px-4 py-2.5 text-xs font-bold text-gray-200 hover:text-white hover:bg-gray-800 transition"
           >
-            <span>💳</span> Manage Payment Methods
+            Continue Shopping →
           </Link>
         </div>
+
+        {/* Global Action / Status Notice Banner */}
+        {actionNotice && (
+          <div className="mb-6 rounded-2xl border border-blue-500/30 bg-blue-950/30 p-4 text-xs font-medium text-blue-200 flex items-start justify-between gap-3 animate-in fade-in">
+            <div className="flex items-start gap-2">
+              <span className="text-base text-blue-400 font-bold">ℹ</span>
+              <span>{actionNotice}</span>
+            </div>
+            <button
+              onClick={() => setActionNotice("")}
+              className="text-gray-400 hover:text-white text-xs cursor-pointer"
+            >
+              ✕
+            </button>
+          </div>
+        )}
 
         {orders.length === 0 ? (
           <div className="rounded-3xl border border-gray-800 bg-gray-900/40 p-12 text-center max-w-lg mx-auto backdrop-blur-md">
@@ -145,7 +263,7 @@ export default function OrdersPage() {
             </div>
             <h2 className="text-xl font-bold text-white">No orders placed yet</h2>
             <p className="mt-2 text-xs text-gray-400 leading-relaxed">
-              When you purchase electronics, apparel, or gaming gear, your order details and delivery status will appear right here.
+              When you purchase products on ShopSphere, your real-time tracking, payment verification, and tax invoices will appear here.
             </p>
             <Link
               href="/products"
@@ -166,21 +284,27 @@ export default function OrdersPage() {
               };
 
               const steps = [
-                { label: "Placed", step: 1 },
+                { label: "Created", step: 1 },
                 { label: "Confirmed", step: 2 },
                 { label: "Shipped", step: 3 },
                 { label: "Delivered", step: 4 },
               ];
 
               const localMeta = getOrderPaymentMeta(order.id);
-              const paymentMethodName = order.payment_method || localMeta?.method || "UPI";
+              const paymentMethodName = order.payment_method || "Razorpay";
               const paymentBadge = getPaymentBadge(paymentMethodName);
-              const txnId = localMeta?.txnId || `TXN_${order.id}829471`;
+              const txnId = order.payment_id || localMeta?.txnId || (order.status === "confirmed" ? `pay_rzp_${order.id}981` : "Payment Incomplete");
+              const isPending = order.status === "pending";
+              const isCancellable = order.status === "pending" || order.status === "confirmed";
 
               return (
                 <div
                   key={order.id}
-                  className="rounded-3xl border border-gray-800/80 bg-gray-900/50 p-6 sm:p-7 shadow-xl backdrop-blur-md transition hover:border-gray-700"
+                  className={`rounded-3xl border p-6 sm:p-7 shadow-xl backdrop-blur-md transition ${
+                    isPending
+                      ? "border-amber-500/30 bg-gray-900/70"
+                      : "border-gray-800/80 bg-gray-900/50 hover:border-gray-700"
+                  }`}
                 >
                   {/* Top Bar: Order ID, Date & Total */}
                   <div className="flex flex-wrap items-center justify-between gap-4 border-b border-gray-800/80 pb-5">
@@ -202,7 +326,7 @@ export default function OrdersPage() {
                           day: "numeric",
                           hour: "2-digit",
                           minute: "2-digit",
-                        })} • Free Express Delivery
+                        })} • Express Delivery
                       </p>
                     </div>
 
@@ -216,7 +340,7 @@ export default function OrdersPage() {
                     </div>
                   </div>
 
-                  {/* Payment Details Bar */}
+                  {/* Payment Details Bar & Actions */}
                   <div className="flex flex-wrap items-center justify-between gap-3 py-3.5 border-b border-gray-800/60 text-xs">
                     <div className="flex flex-wrap items-center gap-3">
                       <span
@@ -230,17 +354,53 @@ export default function OrdersPage() {
                         Ref: <span className="font-mono text-gray-300">{txnId}</span>
                       </span>
 
-                      <span className="text-[11px] text-emerald-400 font-semibold flex items-center gap-1">
-                        <span>✔</span> {paymentBadge.status}
-                      </span>
+                      {isPending ? (
+                        <span className="text-[11px] text-amber-400 font-semibold flex items-center gap-1">
+                          <span>⏱</span> Payment Incomplete (Pending)
+                        </span>
+                      ) : order.status === "cancelled" ? (
+                        <span className="text-[11px] text-red-400 font-semibold flex items-center gap-1">
+                          <span>✕</span> Order Cancelled
+                        </span>
+                      ) : (
+                        <span className="text-[11px] text-emerald-400 font-semibold flex items-center gap-1">
+                          <span>✔</span> Payment Verified & Confirmed
+                        </span>
+                      )}
                     </div>
 
-                    <button
-                      onClick={() => setSelectedInvoiceOrder(order)}
-                      className="inline-flex items-center gap-1.5 rounded-xl border border-gray-800 bg-gray-950 px-3.5 py-1.5 text-xs font-bold text-gray-200 hover:text-white hover:bg-gray-800 transition active:scale-95"
-                    >
-                      <span>📄</span> View Tax Invoice
-                    </button>
+                    <div className="flex items-center gap-2">
+                      {/* COMPLETE PAYMENT BUTTON IF PENDING */}
+                      {isPending && (
+                        <button
+                          onClick={() => handleCompletePayment(order)}
+                          disabled={paymentProcessing}
+                          className="inline-flex items-center gap-1 rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 px-3.5 py-1.5 text-xs font-black text-white shadow-md shadow-blue-500/20 hover:from-blue-500 hover:to-indigo-500 transition cursor-pointer active:scale-95"
+                        >
+                          <span>⚡</span> {paymentProcessing && payingOrder?.id === order.id ? "Processing..." : "Complete Payment"}
+                        </button>
+                      )}
+
+                      {/* USER CANCEL ORDER BUTTON */}
+                      {isCancellable && (
+                        <button
+                          onClick={() => setOrderToCancel(order)}
+                          className="inline-flex items-center gap-1 rounded-xl border border-red-500/30 bg-red-950/20 px-3 py-1.5 text-xs font-bold text-red-300 hover:bg-red-900/40 hover:text-white transition cursor-pointer active:scale-95"
+                        >
+                          <span>✕</span> Cancel Order
+                        </button>
+                      )}
+
+                      {/* INVOICE BUTTON */}
+                      {order.status !== "cancelled" && (
+                        <button
+                          onClick={() => setSelectedInvoiceOrder(order)}
+                          className="inline-flex items-center gap-1.5 rounded-xl border border-gray-800 bg-gray-950 px-3.5 py-1.5 text-xs font-bold text-gray-200 hover:text-white hover:bg-gray-800 transition active:scale-95 cursor-pointer"
+                        >
+                          <span>📄</span> Tax Invoice
+                        </button>
+                      )}
+                    </div>
                   </div>
 
                   {/* Order Progress Stepper (Only if not cancelled) */}
@@ -311,7 +471,7 @@ export default function OrdersPage() {
                               href={`/products/${item.product_id}`}
                               className="text-[11px] font-semibold text-blue-400 hover:text-blue-300 mt-0.5 block"
                             >
-                              Buy Again →
+                              View Product →
                             </Link>
                           </div>
                         </div>
@@ -321,6 +481,54 @@ export default function OrdersPage() {
                 </div>
               );
             })}
+          </div>
+        )}
+
+        {/* CANCEL ORDER CONFIRMATION MODAL */}
+        {orderToCancel && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-md p-4 animate-in fade-in">
+            <div className="w-full max-w-md rounded-3xl border border-red-500/30 bg-gray-900 p-6 sm:p-8 shadow-2xl space-y-5">
+              <div className="flex items-center gap-3 text-red-400">
+                <span className="text-2xl">⚠️</span>
+                <h3 className="text-lg font-black text-white">Cancel Order #{orderToCancel.id}?</h3>
+              </div>
+
+              <p className="text-xs text-gray-300 leading-relaxed">
+                Are you sure you want to cancel this order? All items ({orderToCancel.items?.length || 0}) will be immediately returned to warehouse inventory. A cancellation confirmation email will be dispatched to your address.
+              </p>
+
+              <div className="rounded-2xl border border-gray-800 bg-gray-950 p-4 text-xs space-y-1">
+                <div className="flex justify-between text-gray-400">
+                  <span>Order Total:</span>
+                  <span className="text-white font-bold font-mono">
+                    ₹{Number(orderToCancel.total_amount).toLocaleString("en-IN", { minimumFractionDigits: 2 })}
+                  </span>
+                </div>
+                <div className="flex justify-between text-gray-400">
+                  <span>Payment Status:</span>
+                  <span className="capitalize text-amber-400">{orderToCancel.status}</span>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-3 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setOrderToCancel(null)}
+                  disabled={cancelling}
+                  className="flex-1 rounded-xl border border-gray-800 bg-gray-950 py-3 text-xs font-bold text-gray-300 hover:bg-gray-800 transition cursor-pointer"
+                >
+                  Keep Order
+                </button>
+                <button
+                  type="button"
+                  onClick={handleConfirmCancel}
+                  disabled={cancelling}
+                  className="flex-1 rounded-xl bg-red-600 py-3 text-xs font-bold text-white hover:bg-red-500 transition shadow-lg shadow-red-600/30 cursor-pointer"
+                >
+                  {cancelling ? "Cancelling..." : "Confirm Cancellation"}
+                </button>
+              </div>
+            </div>
           </div>
         )}
 
@@ -337,13 +545,13 @@ export default function OrdersPage() {
                 <div className="flex items-center gap-2">
                   <button
                     onClick={() => window.print()}
-                    className="rounded-xl border border-gray-800 bg-gray-900 px-3.5 py-1.5 text-xs font-bold text-gray-300 hover:text-white hover:bg-gray-800 transition"
+                    className="rounded-xl border border-gray-800 bg-gray-900 px-3.5 py-1.5 text-xs font-bold text-gray-300 hover:text-white hover:bg-gray-800 transition cursor-pointer"
                   >
-                    🖨 Print / Save PDF
+                    🖨 Print / PDF
                   </button>
                   <button
                     onClick={() => setSelectedInvoiceOrder(null)}
-                    className="rounded-full p-1 text-gray-400 hover:text-white"
+                    className="rounded-full p-1 text-gray-400 hover:text-white cursor-pointer"
                   >
                     ✕
                   </button>
@@ -353,12 +561,12 @@ export default function OrdersPage() {
               {/* Company Header */}
               <div className="flex flex-wrap items-start justify-between gap-4 border-b border-gray-800/80 pb-6 mb-6 text-xs">
                 <div>
-                  <h4 className="text-lg font-black text-white">ShopSphere Technologies Pvt. Ltd.</h4>
+                  <h4 className="text-lg font-black text-white tracking-tight">ShopSphere</h4>
                   <p className="text-gray-400 mt-0.5">GSTIN: 29AAACS1429B1Z8 • CIN: U72900KA2024PTC189234</p>
                   <p className="text-gray-400 mt-0.5">
                     Hub: #42, Electronic City Phase 1, Hosur Road, Bengaluru, Karnataka - 560100
                   </p>
-                  <p className="text-gray-400">Support: care@shopsphere.in | 1800-200-8899</p>
+                  <p className="text-gray-400">Support: care@shopsphere.in</p>
                 </div>
 
                 <div className="text-right">
@@ -383,25 +591,24 @@ export default function OrdersPage() {
                   <span className="text-[10px] font-bold uppercase tracking-wider text-gray-500 block mb-1">
                     Billed To & Shipped To:
                   </span>
-                  <p className="font-bold text-white">{selectedInvoiceOrder.user?.name || "Customer"}</p>
-                  <p className="text-gray-400">{selectedInvoiceOrder.user?.email}</p>
-                  <p className="text-gray-400 mt-1">1402, Brigade Gateway, Malleshwaram, Bengaluru, KA - 560055</p>
-                  <p className="text-gray-400">Place of Supply: Karnataka (State Code: 29)</p>
+                  <p className="font-bold text-white">{selectedInvoiceOrder.user?.name || user?.name || "Customer"}</p>
+                  <p className="text-gray-400">{selectedInvoiceOrder.user?.email || user?.email}</p>
+                  <p className="text-gray-400 mt-1">Place of Supply: Karnataka (State Code: 29)</p>
                 </div>
 
                 <div className="rounded-2xl border border-gray-800 bg-gray-900/60 p-4">
                   <span className="text-[10px] font-bold uppercase tracking-wider text-gray-500 block mb-1">
-                    Payment & Settlement Details:
+                    Payment Gateway Details:
                   </span>
                   <div className="space-y-1">
                     <p className="text-xs">
-                      Method: <span className="font-bold text-white">{selectedInvoiceOrder.payment_method || "UPI (Instant)"}</span>
+                      Gateway: <span className="font-bold text-white">Razorpay Secure</span>
                     </p>
                     <p className="text-xs">
-                      Txn Ref: <span className="font-mono text-gray-300">TXN_{selectedInvoiceOrder.id}9827419</span>
+                      Payment ID: <span className="font-mono text-gray-300">{selectedInvoiceOrder.payment_id || `pay_rzp_${selectedInvoiceOrder.id}482`}</span>
                     </p>
                     <p className="text-xs text-emerald-400 font-bold">
-                      Payment Status: PAID & AUTHORIZED
+                      Payment Status: {selectedInvoiceOrder.status === "pending" ? "PENDING AUTHORIZATION" : "VERIFIED & SETTLED"}
                     </p>
                   </div>
                 </div>
@@ -491,5 +698,13 @@ export default function OrdersPage() {
         )}
       </div>
     </main>
+  );
+}
+
+export default function OrdersPage() {
+  return (
+    <Suspense fallback={<div className="min-h-screen bg-gray-950 p-10 text-white">Loading orders...</div>}>
+      <OrdersContent />
+    </Suspense>
   );
 }

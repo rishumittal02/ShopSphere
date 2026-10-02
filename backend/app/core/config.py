@@ -27,3 +27,15 @@ FRONTEND_URL = os.getenv(
     "FRONTEND_URL",
     "http://localhost:3000"
 )
+
+# Email / SMTP Configuration
+SMTP_HOST = os.getenv("SMTP_HOST", "")
+SMTP_PORT = int(os.getenv("SMTP_PORT", "587"))
+SMTP_USER = os.getenv("SMTP_USER", "")
+SMTP_PASSWORD = os.getenv("SMTP_PASSWORD", "")
+SMTP_FROM_EMAIL = os.getenv("SMTP_FROM_EMAIL", "noreply@shopsphere.in")
+SMTP_FROM_NAME = os.getenv("SMTP_FROM_NAME", "ShopSphere")
+
+# Razorpay Configuration
+RAZORPAY_KEY_ID = os.getenv("RAZORPAY_KEY_ID", "rzp_test_shopsphere2026")
+RAZORPAY_KEY_SECRET = os.getenv("RAZORPAY_KEY_SECRET", "mock_secret_key_123")

@@ -64,11 +64,16 @@ export default function AdminCategoriesPage() {
         }
       );
 
-      const data = await response.json();
+      let data = {};
+      try {
+        data = await response.json();
+      } catch (e) {
+        // Fallback for non-JSON response
+      }
 
       if (!response.ok) {
         throw new Error(
-          data.detail || "Failed to delete category"
+          data.detail || `Failed to delete category (HTTP ${response.status})`
         );
       }
 
@@ -78,7 +83,10 @@ export default function AdminCategoriesPage() {
         )
       );
     } catch (error) {
-      setError(error.message);
+      const msg = error.message === "Failed to fetch"
+        ? "Unable to connect to the backend server. Please verify your connection or check server logs."
+        : error.message;
+      setError(msg);
     }
   };
 
