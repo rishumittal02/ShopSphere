@@ -1,7 +1,9 @@
+import hashlib
+import hmac
 import random
 import secrets
 from datetime import datetime, timedelta, timezone
-from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
+from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks, status
 from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.orm import Session
 from passlib.context import CryptContext
@@ -44,11 +46,34 @@ pwd_context = CryptContext(
     deprecated="auto"
 )
 
+
+def _generate_secure_code() -> str:
+    """Generates cryptographically secure 6-digit numeric OTP."""
+    return "".join(secrets.choice("0123456789") for _ in range(6))
+
+
+def _hash_code(code: str) -> str:
+    """Computes SHA-256 hash of the verification code."""
+    return hashlib.sha256(f"shopsphere_vcode_{code.strip()}".encode("utf-8")).hexdigest()
+
+
+def _verify_code_hash(raw_code: str, stored_hash: str | None, plaintext_fallback: str | None = None) -> bool:
+    """Verifies user-provided code using constant-time comparison."""
+    if stored_hash:
+        expected_hash = _hash_code(raw_code)
+        if hmac.compare_digest(expected_hash, stored_hash):
+            return True
+    if plaintext_fallback and hmac.compare_digest(raw_code.strip(), plaintext_fallback.strip()):
+        return True
+    return False
+
+
 @router.get("/me", response_model=UserResponse)
 def get_my_profile(
     current_user: User = Depends(get_current_user)
 ):
     return current_user
+
 
 @router.post("/register", response_model=UserResponse)
 def register_user(
@@ -72,8 +97,11 @@ def register_user(
         # Unverified user re-registering: update credentials and issue fresh code
         existing_user.name = user_data.name
         existing_user.password = pwd_context.hash(user_data.password)
-        code = f"{random.randint(100000, 999999)}"
+        code = _generate_secure_code()
         existing_user.verification_code = code
+        existing_user.verification_code_hash = _hash_code(code)
+        existing_user.verification_attempts = 0
+        existing_user.verification_code_sent_at = datetime.now(timezone.utc)
         existing_user.verification_code_expires_at = datetime.now(timezone.utc) + timedelta(minutes=15)
         db.commit()
         db.refresh(existing_user)
@@ -85,9 +113,10 @@ def register_user(
         user_data.password
     )
 
-    # 6-digit verification OTP
-    code = f"{random.randint(100000, 999999)}"
-    expires_at = datetime.now(timezone.utc) + timedelta(minutes=15)
+    # 6-digit cryptographically secure verification OTP
+    code = _generate_secure_code()
+    now_utc = datetime.now(timezone.utc)
+    expires_at = now_utc + timedelta(minutes=15)
 
     new_user = User(
         name=user_data.name,
@@ -96,7 +125,11 @@ def register_user(
         role="user",
         is_verified=False,
         verification_code=code,
+        verification_code_hash=_hash_code(code),
+        verification_attempts=0,
+        verification_code_sent_at=now_utc,
         verification_code_expires_at=expires_at,
+        token_version=1,
     )
 
     db.add(new_user)
@@ -107,6 +140,7 @@ def register_user(
     background_tasks.add_task(send_verification_email, new_user.email, code, new_user.name)
 
     return new_user
+
 
 @router.post("/login", response_model=TokenResponse)
 def login_user(
@@ -142,7 +176,7 @@ def login_user(
             detail="Email not verified. Please check your inbox for the verification code."
         )
 
-    access_token = create_access_token(user.id)
+    access_token = create_access_token(user.id, getattr(user, "token_version", 1))
 
     return {
         "access_token": access_token,
@@ -168,7 +202,7 @@ def verify_email(
         )
 
     if user.is_verified:
-        access_token = create_access_token(user.id)
+        access_token = create_access_token(user.id, getattr(user, "token_version", 1))
         return {
             "message": "Email is already verified.",
             "access_token": access_token,
@@ -182,10 +216,15 @@ def verify_email(
             }
         }
 
-    if not user.verification_code or user.verification_code != payload.code.strip():
+    # Check attempt limit
+    attempts = getattr(user, "verification_attempts", 0) or 0
+    if attempts >= 5:
+        user.verification_code = None
+        user.verification_code_hash = None
+        db.commit()
         raise HTTPException(
-            status_code=400,
-            detail="Invalid verification code. Please check and try again."
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Maximum verification attempts exceeded. Please request a new verification code."
         )
 
     # Check expiration
@@ -199,13 +238,38 @@ def verify_email(
                 detail="Verification code has expired. Please click resend to get a new code."
             )
 
+    # Validate code with constant-time comparison
+    is_valid = _verify_code_hash(
+        payload.code,
+        getattr(user, "verification_code_hash", None),
+        getattr(user, "verification_code", None)
+    )
+
+    if not is_valid:
+        user.verification_attempts = attempts + 1
+        db.commit()
+        remaining = max(0, 5 - user.verification_attempts)
+        if remaining == 0:
+            user.verification_code = None
+            user.verification_code_hash = None
+            db.commit()
+            raise HTTPException(
+                status_code=400,
+                detail="Too many failed verification attempts. This code has been deactivated. Please request a new code."
+            )
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid verification code. {remaining} attempt(s) remaining."
+        )
+
     user.is_verified = True
     user.verification_code = None
-    user.verification_code_expires_at = None
+    user.verification_code_hash = None
+    user.verification_attempts = 0
     db.commit()
     db.refresh(user)
 
-    access_token = create_access_token(user.id)
+    access_token = create_access_token(user.id, getattr(user, "token_version", 1))
 
     return {
         "message": "Email verified successfully!",
@@ -233,21 +297,33 @@ def resend_verification(
         .first()
     )
 
-    if not user:
-        raise HTTPException(
-            status_code=404,
-            detail="User not found with this email"
-        )
-
-    if user.is_verified:
+    # To avoid email enumeration while providing safe feedback:
+    if not user or user.is_verified:
         return {
-            "message": "Email is already verified.",
+            "message": "If an unverified account exists for this email, a new verification code has been dispatched.",
             "success": True
         }
 
-    code = f"{random.randint(100000, 999999)}"
+    # Enforce 60-second server cooldown
+    sent_at = getattr(user, "verification_code_sent_at", None)
+    if sent_at:
+        if sent_at.tzinfo is None:
+            sent_at = sent_at.replace(tzinfo=timezone.utc)
+        elapsed = (datetime.now(timezone.utc) - sent_at).total_seconds()
+        if elapsed < 60:
+            remaining = int(60 - elapsed)
+            raise HTTPException(
+                status_code=429,
+                detail=f"Please wait {remaining} seconds before requesting a new code."
+            )
+
+    code = _generate_secure_code()
+    now_utc = datetime.now(timezone.utc)
     user.verification_code = code
-    user.verification_code_expires_at = datetime.now(timezone.utc) + timedelta(minutes=15)
+    user.verification_code_hash = _hash_code(code)
+    user.verification_attempts = 0
+    user.verification_code_sent_at = now_utc
+    user.verification_code_expires_at = now_utc + timedelta(minutes=15)
     db.commit()
 
     background_tasks.add_task(send_verification_email, user.email, code, user.name)
@@ -313,8 +389,11 @@ def reset_password(
             )
 
     user.password = pwd_context.hash(payload.new_password)
+    # One-time use: clear reset token immediately
     user.reset_password_token = None
     user.reset_password_expires_at = None
+    # Invalidate all existing login sessions/tokens
+    user.token_version = (getattr(user, "token_version", 1) or 1) + 1
     db.commit()
 
     return {

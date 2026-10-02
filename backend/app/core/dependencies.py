@@ -47,6 +47,14 @@ def get_current_user(
     if user is None:
         raise credentials_exception
 
+    token_ver = payload.get("ver")
+    if token_ver is not None and getattr(user, "token_version", 1) != token_ver:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Session has been revoked due to a password reset. Please log in again.",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
     return user
 
 def require_admin(

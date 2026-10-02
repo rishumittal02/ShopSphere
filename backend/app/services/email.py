@@ -312,4 +312,4 @@ def send_password_reset_email(user, reset_url: str, user_name: str = "") -> bool
     </html>
     """
     text_content = f"Reset your ShopSphere password by visiting this link: {reset_url} (Expires in 30 minutes)."
-    return send_email(user.email, subject, html_content, text_content)
+    return send_email(to_email, subject, html_content, text_content)

@@ -9,13 +9,14 @@ from app.core.config import (
 )
 
 
-def create_access_token(user_id: int):
+def create_access_token(user_id: int, token_version: int = 1):
     expire = datetime.now(timezone.utc) + timedelta(
         minutes=ACCESS_TOKEN_EXPIRE_MINUTES
     )
 
     payload = {
         "sub": str(user_id),
+        "ver": token_version,
         "exp": expire,
     }
 

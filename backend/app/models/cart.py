@@ -1,3 +1,4 @@
+from decimal import Decimal
 from sqlalchemy import Column, Integer, ForeignKey
 from sqlalchemy.orm import relationship
 
@@ -25,14 +26,12 @@ class Cart(Base):
     )
 
     @property
-    def total_amount(self) -> float:
+    def total_amount(self) -> Decimal:
         if not self.items:
-            return 0.0
-        return float(
-            sum(
-                (float(item.product.price) if item.product and item.product.price is not None else 0.0) * item.quantity
-                for item in self.items
-            )
+            return Decimal("0.00")
+        return sum(
+            (Decimal(str(item.product.price)) if item.product and item.product.price is not None else Decimal("0.00")) * item.quantity
+            for item in self.items
         )
 
 

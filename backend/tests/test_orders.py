@@ -240,11 +240,96 @@ def test_payment_verification_confirms_order(client, normal_user_token, sample_p
     verify_payload = {
         "razorpay_payment_id": "pay_test_987654321",
         "razorpay_order_id": order.get("razorpay_order_id", "order_rzp_test"),
-        "razorpay_signature": "mock_valid_signature"
+        "razorpay_signature": "mock_valid_signature",
     }
     verify_res = client.post(f"/orders/{order_id}/verify-payment", json=verify_payload, headers=headers)
     assert verify_res.status_code == 200
     confirmed_order = verify_res.json()
     assert confirmed_order["status"] == "confirmed"
     assert confirmed_order["payment_method"] == "Razorpay"
+
+
+def test_payment_verification_idempotency(client, normal_user_token, sample_product):
+    headers = {"Authorization": f"Bearer {normal_user_token}"}
+
+    client.post("/cart/items", json={"product_id": sample_product.id, "quantity": 1}, headers=headers)
+    order = client.post("/orders/checkout", headers=headers).json()
+    order_id = order["id"]
+
+    verify_payload = {
+        "razorpay_payment_id": "pay_test_idempotent_1",
+        "razorpay_order_id": order.get("razorpay_order_id", "order_rzp_test"),
+        "razorpay_signature": "mock_valid_signature",
+    }
+    # First confirmation
+    res1 = client.post(f"/orders/{order_id}/verify-payment", json=verify_payload, headers=headers)
+    assert res1.status_code == 200
+    assert res1.json()["status"] == "confirmed"
+
+    # Duplicate confirmation should be idempotent (return 200 with confirmed order)
+    res2 = client.post(f"/orders/{order_id}/verify-payment", json=verify_payload, headers=headers)
+    assert res2.status_code == 200
+    assert res2.json()["status"] == "confirmed"
+
+
+def test_payment_verification_invalid_signature(client, normal_user_token, sample_product, monkeypatch):
+    headers = {"Authorization": f"Bearer {normal_user_token}"}
+
+    client.post("/cart/items", json={"product_id": sample_product.id, "quantity": 1}, headers=headers)
+    order = client.post("/orders/checkout", headers=headers).json()
+    order_id = order["id"]
+
+    # Temporarily enforce live signature check by turning off RAZORPAY_IS_DEMO
+    monkeypatch.setattr("app.routers.orders.RAZORPAY_IS_DEMO", False)
+
+    verify_payload = {
+        "razorpay_payment_id": "pay_test_fake",
+        "razorpay_order_id": order.get("razorpay_order_id", "order_rzp_test"),
+        "razorpay_signature": "completely_invalid_signature_hex",
+    }
+    res = client.post(f"/orders/{order_id}/verify-payment", json=verify_payload, headers=headers)
+    assert res.status_code == 400
+    assert "Invalid Razorpay payment signature" in res.json()["detail"]
+
+
+def test_fail_payment_releases_stock(client, normal_user_token, sample_product, db_session):
+    headers = {"Authorization": f"Bearer {normal_user_token}"}
+    initial_stock = sample_product.stock
+
+    client.post("/cart/items", json={"product_id": sample_product.id, "quantity": 2}, headers=headers)
+    order = client.post("/orders/checkout", headers=headers).json()
+    order_id = order["id"]
+
+    db_session.refresh(sample_product)
+    assert sample_product.stock == initial_stock - 2
+
+    # Fail payment endpoint releases stock
+    fail_res = client.post(f"/orders/{order_id}/fail-payment", headers=headers)
+    assert fail_res.status_code == 200
+    assert fail_res.json()["status"] == "payment_failed"
+
+    db_session.refresh(sample_product)
+    assert sample_product.stock == initial_stock
+
+
+def test_order_item_product_name_snapshot(client, normal_user_token, sample_product, db_session):
+    headers = {"Authorization": f"Bearer {normal_user_token}"}
+    original_name = sample_product.name
+
+    client.post("/cart/items", json={"product_id": sample_product.id, "quantity": 1}, headers=headers)
+    order = client.post("/orders/checkout", headers=headers).json()
+    order_id = order["id"]
+
+    assert order["items"][0]["product_name"] == original_name
+
+    # Now change product name in database
+    sample_product.name = "Brand New Renamed Title"
+    db_session.commit()
+
+    # Fetch order history - snapshot must remain the original name!
+    order_res = client.get(f"/orders/{order_id}", headers=headers)
+    assert order_res.status_code == 200
+    fetched_order = order_res.json()
+    assert fetched_order["items"][0]["product_name"] == original_name
+
 

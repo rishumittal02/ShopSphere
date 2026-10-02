@@ -17,29 +17,40 @@ ShopSphere delivers a modern, high-performance shopping experience:
 
 - **Authentication & Security**:
   - Secure registration and login using passlib bcrypt hashing.
-  - Stateless JSON Web Tokens (JWT) using the `HS256` signature algorithm.
+  - Stateless JSON Web Tokens (JWT) with embedded `token_version` for instant session revocation upon password reset.
+  - Cryptographically secure 6-digit verification code generation via `secrets`.
+  - SHA-256 hashed verification codes stored in database (plain codes never persisted).
+  - Rate limiting & brute force mitigation: 5-attempt verification lockout and 60-second resend cooldown.
   - Role-based authorization (`admin` vs `user`) protecting privileged endpoints with HTTP 403 Forbidden.
-  - Sanitized responses ensuring passwords and sensitive credentials are never leaked.
-- **Product Catalog**:
+  - Fail-fast production secret validation: application refuses to boot if default JWT secrets are present in production (`ENVIRONMENT=production`).
+- **Product Catalog & Persistent Reviews**:
   - Full-text case-insensitive product search across name and description.
   - Filter by category with real-time UI synchronization.
   - Multi-attribute sorting (`price_asc`, `price_desc`, `name_asc`, `name_desc`).
   - Server-side pagination (`skip` and `limit`).
+  - Persistent customer reviews backed by database models (`Review`), with rating aggregation (1-5 stars) and user attribution.
 - **Cart & Concurrency-Safe Checkout**:
   - Persistent user cart tied directly to database models.
-  - Dynamic quantity updating with live stock availability limits.
-  - Row-level database locking during checkout (`with_for_update()`).
-  - Atomic transaction rollback on insufficient stock or invalid items.
+  - High concurrency protection: row-level locking on both the Cart (`with_for_update()`) and Product rows during checkout to eliminate duplicate checkouts and overselling.
+  - Precision money handling using `Decimal` across database columns and Pydantic schemas.
+  - Immutable historical order records: `OrderItem` stores snapshots of both `price` and `product_name` at purchase time.
+  - Foreign key protection: products linked to existing customer orders cannot be deleted.
+- **Payment Verification & Checkout Integrity**:
+  - Server-side Razorpay HMAC-SHA256 signature verification (`hmac.compare_digest`).
+  - Strict idempotency protection preventing duplicate payment callback confirmations.
+  - Stock release mechanism: abandoned or failed payments release reserved inventory back to product stock.
+  - Explicit distinction between live credentials and demo mode (`RAZORPAY_IS_DEMO=true`).
 - **Order Lifecycle & State Machine**:
   - Strict order state transitions enforced at the database and API level:
-    - `pending` → `confirmed` | `cancelled`
+    - `pending` → `confirmed` | `payment_failed` | `cancelled`
     - `confirmed` → `shipped` | `cancelled`
     - `shipped` → `delivered`
-    - `delivered` and `cancelled` are terminal states.
+    - `delivered`, `payment_failed`, and `cancelled` are terminal states.
 - **UI & UX Polish**:
-  - Fully responsive layout for desktop, tablet, and mobile with a hamburger menu.
-  - Skeleton loading states and empty result states.
-  - Instant client-side authentication synchronization.
+  - Responsive layout for desktop, tablet, and mobile with accessible navigation.
+  - Separate visual badges for payment status and fulfillment status.
+  - Confirmation modals for destructive actions (e.g. order cancellation).
+  - Immediate login/logout transitions without artificial timer delays.
 
 ---
 
@@ -269,49 +280,111 @@ The backend test suite uses `pytest` with an isolated SQLite in-memory database 
 ```bash
 cd backend
 .\venv\Scripts\activate   # or source venv/bin/activate
-pytest tests/ -v
+pytest -v
 ```
 
-All 46 test cases cover:
-- Authentication & JWT issuance/validation
-- RBAC protection & unauthorized access rejection
-- Product catalog search, filter, sort, and pagination
-- Category CRUD & foreign key deletion guards
-- Cart operations & inventory boundary checks
-- Atomic order checkout & state machine transitions
+All 64 test cases validate:
+- **Authentication & Token Lifecycle**:
+  - Secure registration, login, and `/auth/me` verification
+  - 6-digit cryptographically secure email verification code generation
+  - SHA-256 code hashing and constant-time comparison
+  - Brute force mitigation: 5-attempt verification lockout (HTTP 429)
+  - Resend cooldowns: 60-second server-side rate limits
+  - Password reset flows with automatic active session/JWT revocation via `token_version`
+- **RBAC & Authorization**:
+  - Privilege separation between `admin` and `user` roles
+  - Strict user data isolation: cart and order access limited exclusively to their owner
+- **Product Catalog & Persistent Reviews**:
+  - Case-insensitive multi-field search, category filtering, multi-field sorting, and pagination
+  - Precision money calculations with `Decimal`
+  - Deletion guards preventing the deletion of products linked to historical customer orders
+  - Creating and fetching product reviews with aggregate star rating calculations
+- **Cart & Concurrency-Safe Checkout**:
+  - Inventory boundary enforcement and quantity updates
+  - Cart row-level locking (`with_for_update()`) and concurrent checkout serialization
+  - Atomic rollbacks on insufficient inventory
+- **Payment Verification & Integrity**:
+  - Server-side HMAC-SHA256 signature verification for Razorpay transactions
+  - Idempotent confirmation: duplicate callbacks return 200 without double-settling orders
+  - Stock release on payment failure: inventory restored when payments fail or are cancelled
+  - Snapshot persistence: `OrderItem` preserves both the price and product name at the time of purchase
 
 ---
 
-## 12. Docker Setup
+## 12. Health Check & Monitoring Endpoints
 
-To build and run the entire application stack (MySQL, FastAPI, Next.js) using Docker Compose:
+ShopSphere provides native health check endpoints for container orchestrators and load balancers:
+
+- **API Health**: `GET http://localhost:8000/health`
+  ```json
+  {
+    "status": "healthy",
+    "service": "ShopSphere API",
+    "version": "1.0.0"
+  }
+  ```
+- **Interactive Documentation**: `http://localhost:8000/docs`
+
+---
+
+## 13. Docker & Deployment Configuration
+
+### Multi-Container Stack (MySQL 8, FastAPI, Next.js 16)
+ShopSphere ships with a fully harmonized Docker Compose setup with native container health checks:
 
 ```bash
+# Build and run the entire stack:
 docker compose up --build
 ```
 
 - **Frontend**: `http://localhost:3000`
 - **Backend API**: `http://localhost:8000`
 - **API Documentation**: `http://localhost:8000/docs`
+- **MySQL Database**: `localhost:3307` (mapped from container port 3306)
 
 To stop and remove containers:
 ```bash
 docker compose down
 ```
 
+### Database Migrations
+Migrations run automatically upon Docker startup, or can be run manually:
+```bash
+cd backend
+alembic upgrade head
+```
+
+### Database Backup & Restore
+To backup production MySQL data:
+```bash
+mysqldump -u shopsphere_user -p shopsphere > shopsphere_backup_$(date +%Y%m%d).sql
+```
+
+To restore from backup:
+```bash
+mysql -u shopsphere_user -p shopsphere < shopsphere_backup_20261002.sql
+```
+
+### Payment Configuration (Test vs Live)
+- **Local / Demo Mode**: Keep `RAZORPAY_IS_DEMO=true` in `.env` to test end-to-end checkout flows with simulated signatures.
+- **Production Mode**: Set `RAZORPAY_IS_DEMO=false` and provide live `RAZORPAY_KEY_ID` and `RAZORPAY_KEY_SECRET` generated from the Razorpay dashboard.
+
 ---
 
-## 13. Continuous Integration (CI/CD)
+## 14. Continuous Integration (CI/CD)
 
 The GitHub Actions workflow (`.github/workflows/ci.yml`) executes on every push and pull request to `main` and `develop`:
-1. **Backend Job**: Installs dependencies and runs the complete pytest test suite.
-2. **Frontend Job**: Installs dependencies and verifies that the Next.js production build compiles with zero errors.
+1. **Backend Job**: Installs dependencies and runs the complete pytest test suite (64 tests).
+2. **Frontend Job**: Installs dependencies, runs linter checks, and verifies that the Next.js production build compiles with zero errors.
 
 ---
 
-## 14. Future Improvements
+## 15. Production Deployment Checklist
 
-- Stripe / Razorpay webhook integration for credit card and UPI payments.
-- Asynchronous email order receipts via Celery or background tasks.
-- Redis cache layer for high-throughput product catalog queries.
-- Refresh token rotation for extended user sessions.
+- [x] Set `ENVIRONMENT=production` in backend `.env`
+- [x] Configure high-entropy `SECRET_KEY` (minimum 32 random characters)
+- [x] Set `RAZORPAY_IS_DEMO=false` with live merchant API credentials
+- [x] Configure production SMTP credentials for transactional emails
+- [x] Point `NEXT_PUBLIC_BACKEND_URL` in frontend to public domain URL
+- [x] Apply Alembic database migrations (`alembic upgrade head`)
+

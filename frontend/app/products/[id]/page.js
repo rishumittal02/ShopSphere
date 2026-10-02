@@ -60,7 +60,36 @@ export default function ProductDetailsPage() {
 
         const data = await response.json();
         setProduct(data);
-        setReviews(getProductReviews(data));
+
+        try {
+          const revResponse = await apiFetch(
+            `http://localhost:8000/products/${productId}/reviews`
+          );
+          if (revResponse.ok) {
+            const revData = await revResponse.json();
+            if (revData.reviews && revData.reviews.length > 0) {
+              setReviews(
+                revData.reviews.map((r) => ({
+                  id: r.id,
+                  author: r.user_name || "Customer",
+                  city: "Verified Purchase",
+                  rating: r.rating,
+                  date: new Date(r.created_at).toLocaleDateString(),
+                  verified: true,
+                  helpfulCount: 0,
+                  title: r.rating >= 4 ? "Recommended Product" : "Customer Review",
+                  comment: r.comment,
+                }))
+              );
+            } else {
+              setReviews(getProductReviews(data));
+            }
+          } else {
+            setReviews(getProductReviews(data));
+          }
+        } catch {
+          setReviews(getProductReviews(data));
+        }
       } catch (err) {
         setError(err.message);
       } finally {
@@ -130,37 +159,66 @@ export default function ProductDetailsPage() {
   const handleHelpfulVote = (reviewId) => {
     setHelpfulVotes((prev) => ({
       ...prev,
-      [reviewId]: (prev[reviewId] || 0) + 1
+      [reviewId]: (prev[reviewId] || 0) + 1,
     }));
   };
 
-  const handleSubmitReview = (e) => {
+  const handleSubmitReview = async (e) => {
     e.preventDefault();
-    if (!newReview.author.trim() || !newReview.comment.trim()) return;
+    if (!newReview.comment.trim()) return;
 
-    const submitted = {
-      id: Date.now(),
-      author: newReview.author.trim(),
-      city: newReview.city.trim() || "Verified Shopper",
-      rating: Number(newReview.rating),
-      date: "Just now",
-      verified: true,
-      helpfulCount: 1,
-      title: newReview.title.trim() || "Great purchase!",
-      comment: newReview.comment.trim()
-    };
+    const token = typeof window !== "undefined" ? localStorage.getItem("access_token") : null;
+    if (!token) {
+      router.push("/login");
+      return;
+    }
 
-    setReviews([submitted, ...reviews]);
-    setNewReview({ author: "", city: "", rating: 5, title: "", comment: "" });
-    setShowReviewModal(false);
-    setReviewSubmitted(true);
-    setTimeout(() => setReviewSubmitted(false), 5000);
+    try {
+      const response = await apiFetch(
+        `http://localhost:8000/products/${productId}/reviews`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            rating: Number(newReview.rating),
+            comment: newReview.comment.trim(),
+          }),
+        }
+      );
+
+      const data = await response.json();
+      if (!response.ok) {
+        throw new Error(data.detail || "Failed to submit review");
+      }
+
+      const submitted = {
+        id: data.id,
+        author: data.user_name || user?.name || "You",
+        city: "Verified Purchase",
+        rating: data.rating,
+        date: "Just now",
+        verified: true,
+        helpfulCount: 0,
+        title: data.rating >= 4 ? "Recommended Product" : "Customer Review",
+        comment: data.comment,
+      };
+
+      setReviews((prev) => [submitted, ...prev]);
+      setNewReview({ author: "", city: "", rating: 5, title: "", comment: "" });
+      setShowReviewModal(false);
+      setReviewSubmitted(true);
+      setTimeout(() => setReviewSubmitted(false), 5000);
+    } catch (err) {
+      alert(err.message);
+    }
   };
 
   const handleCheckPincode = (e) => {
     e.preventDefault();
-    if (pincode.length === 6) {
-      setPincodeStatus("✓ Delivery available! Free Express delivery by tomorrow, 5 PM");
+    if (pincode.length === 6 && /^\d+$/.test(pincode)) {
+      setPincodeStatus("Estimated delivery in 2-4 business days (Simulated Estimate)");
     } else {
       setPincodeStatus("Please enter a valid 6-digit PIN code");
     }
@@ -368,9 +426,14 @@ export default function ProductDetailsPage() {
 
               {/* Pincode Delivery Check */}
               <div className="mt-5 rounded-2xl border border-gray-800 bg-gray-950/70 p-4">
-                <label className="text-[11px] font-bold uppercase tracking-wider text-gray-400 block mb-1.5">
-                  Check Delivery Time & Availability
-                </label>
+                <div className="flex items-center justify-between mb-1.5">
+                  <label className="text-[11px] font-bold uppercase tracking-wider text-gray-400">
+                    Delivery Estimate Calculator
+                  </label>
+                  <span className="text-[10px] text-gray-500 bg-gray-900 border border-gray-800 rounded px-1.5 py-0.5">
+                    Demo Simulator
+                  </span>
+                </div>
                 <form onSubmit={handleCheckPincode} className="flex gap-2">
                   <input
                     type="text"
@@ -608,36 +671,39 @@ export default function ProductDetailsPage() {
                 </button>
               </div>
 
-              <form onSubmit={handleSubmitReview} className="space-y-4">
-                <div>
-                  <label className="block text-xs font-semibold text-gray-300 mb-1">Your Name *</label>
-                  <input
-                    type="text"
-                    required
-                    value={newReview.author}
-                    onChange={(e) => setNewReview({ ...newReview, author: e.target.value })}
-                    placeholder="e.g. Priya Sharma"
-                    className="w-full rounded-xl border border-gray-800 bg-gray-950 px-3 py-2 text-xs text-white outline-none focus:border-blue-500"
-                  />
+              {!user ? (
+                <div className="py-6 text-center space-y-4">
+                  <p className="text-xs text-gray-300">
+                    You must be signed in to submit a verified product review.
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => router.push("/login")}
+                    className="rounded-xl bg-blue-600 px-6 py-2.5 text-xs font-bold text-white hover:bg-blue-500 shadow-md shadow-blue-500/25"
+                  >
+                    Sign In to Continue
+                  </button>
                 </div>
-
-                <div className="grid grid-cols-2 gap-3">
+              ) : (
+                <form onSubmit={handleSubmitReview} className="space-y-4">
                   <div>
-                    <label className="block text-xs font-semibold text-gray-300 mb-1">City / Location</label>
-                    <input
-                      type="text"
-                      value={newReview.city}
-                      onChange={(e) => setNewReview({ ...newReview, city: e.target.value })}
-                      placeholder="e.g. Mumbai"
-                      className="w-full rounded-xl border border-gray-800 bg-gray-950 px-3 py-2 text-xs text-white outline-none focus:border-blue-500"
-                    />
+                    <label className="block text-xs font-semibold text-gray-300 mb-1">
+                      Posting as
+                    </label>
+                    <div className="rounded-xl border border-gray-800 bg-gray-950 px-3 py-2 text-xs text-gray-400">
+                      {user.name} ({user.email})
+                    </div>
                   </div>
 
                   <div>
-                    <label className="block text-xs font-semibold text-gray-300 mb-1">Rating *</label>
+                    <label className="block text-xs font-semibold text-gray-300 mb-1">
+                      Rating *
+                    </label>
                     <select
                       value={newReview.rating}
-                      onChange={(e) => setNewReview({ ...newReview, rating: Number(e.target.value) })}
+                      onChange={(e) =>
+                        setNewReview({ ...newReview, rating: Number(e.target.value) })
+                      }
                       className="w-full rounded-xl border border-gray-800 bg-gray-950 px-3 py-2 text-xs text-white outline-none focus:border-blue-500"
                     >
                       <option value={5}>★★★★★ (5 Stars - Excellent)</option>
@@ -647,47 +713,40 @@ export default function ProductDetailsPage() {
                       <option value={1}>★☆☆☆☆ (1 Star - Poor)</option>
                     </select>
                   </div>
-                </div>
 
-                <div>
-                  <label className="block text-xs font-semibold text-gray-300 mb-1">Review Headline</label>
-                  <input
-                    type="text"
-                    value={newReview.title}
-                    onChange={(e) => setNewReview({ ...newReview, title: e.target.value })}
-                    placeholder="e.g. Comfortable fit and super fast delivery!"
-                    className="w-full rounded-xl border border-gray-800 bg-gray-950 px-3 py-2 text-xs text-white outline-none focus:border-blue-500"
-                  />
-                </div>
+                  <div>
+                    <label className="block text-xs font-semibold text-gray-300 mb-1">
+                      Your Review *
+                    </label>
+                    <textarea
+                      rows={4}
+                      required
+                      value={newReview.comment}
+                      onChange={(e) =>
+                        setNewReview({ ...newReview, comment: e.target.value })
+                      }
+                      placeholder="What did you like or dislike? How does it fit or perform? Share your honest feedback..."
+                      className="w-full rounded-xl border border-gray-800 bg-gray-950 px-3 py-2 text-xs text-white outline-none focus:border-blue-500"
+                    />
+                  </div>
 
-                <div>
-                  <label className="block text-xs font-semibold text-gray-300 mb-1">Your Detailed Experience *</label>
-                  <textarea
-                    rows={4}
-                    required
-                    value={newReview.comment}
-                    onChange={(e) => setNewReview({ ...newReview, comment: e.target.value })}
-                    placeholder="What did you like or dislike? How does it fit or perform? Is the build quality as described?"
-                    className="w-full rounded-xl border border-gray-800 bg-gray-950 px-3 py-2 text-xs text-white outline-none focus:border-blue-500"
-                  />
-                </div>
-
-                <div className="flex justify-end gap-3 pt-2">
-                  <button
-                    type="button"
-                    onClick={() => setShowReviewModal(false)}
-                    className="rounded-xl border border-gray-700 bg-gray-800 px-4 py-2 text-xs font-semibold text-gray-300 hover:bg-gray-700"
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    type="submit"
-                    className="rounded-xl bg-blue-600 px-5 py-2 text-xs font-bold text-white hover:bg-blue-500 shadow-md shadow-blue-500/25"
-                  >
-                    Submit Review
-                  </button>
-                </div>
-              </form>
+                  <div className="flex justify-end gap-3 pt-2">
+                    <button
+                      type="button"
+                      onClick={() => setShowReviewModal(false)}
+                      className="rounded-xl border border-gray-700 bg-gray-800 px-4 py-2 text-xs font-semibold text-gray-300 hover:bg-gray-700"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="submit"
+                      className="rounded-xl bg-blue-600 px-5 py-2 text-xs font-bold text-white hover:bg-blue-500 shadow-md shadow-blue-500/25"
+                    >
+                      Submit Review
+                    </button>
+                  </div>
+                </form>
+              )}
             </div>
           </div>
         )}

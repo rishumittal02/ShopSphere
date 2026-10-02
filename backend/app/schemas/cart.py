@@ -1,3 +1,4 @@
+from decimal import Decimal
 from pydantic import BaseModel, ConfigDict, Field
 
 
@@ -20,7 +21,7 @@ class CartItemUpdate(BaseModel):
 class CartProductResponse(BaseModel):
     id: int
     name: str
-    price: float
+    price: Decimal
 
     model_config = ConfigDict(
         from_attributes=True
@@ -42,7 +43,7 @@ class CartResponse(BaseModel):
     id: int
     user_id: int
     items: list[CartItemResponse]
-    total_amount: float = 0.0
+    total_amount: Decimal = Decimal("0.00")
 
     model_config = ConfigDict(
         from_attributes=True

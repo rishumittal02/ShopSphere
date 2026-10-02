@@ -19,10 +19,6 @@ export default function LoginPage() {
   const [error, setError] = useState("");
   const [isUnverified, setIsUnverified] = useState(false);
 
-  // 3-4 Second Login State
-  const [isAuthenticating, setIsAuthenticating] = useState(false);
-  const [authStepMessage, setAuthStepMessage] = useState("Authenticating credentials...");
-  const [authProgress, setAuthProgress] = useState(15);
 
   const handleChange = (event) => {
     const { name, value } = event.target;
@@ -64,33 +60,10 @@ export default function LoginPage() {
       // Save token
       localStorage.setItem("access_token", data.access_token);
 
-      // Begin 3.5-second smooth login transition
-      setIsAuthenticating(true);
-      setLoading(false);
-
-      // Step 1 (0 - 1.2s)
-      setAuthStepMessage("Validating security keys & user session...");
-      setAuthProgress(35);
-
-      // Step 2 (1.2s - 2.4s)
-      setTimeout(() => {
-        setAuthStepMessage("Loading your personalized cart & preferences...");
-        setAuthProgress(70);
-      }, 1200);
-
-      // Step 3 (2.4s - 3.5s)
-      setTimeout(() => {
-        setAuthStepMessage("Authentication complete! Entering ShopSphere...");
-        setAuthProgress(100);
-      }, 2400);
-
-      // Final Redirect at 3.5 seconds
-      setTimeout(async () => {
-        if (login) {
-          await login(data.access_token);
-        }
-        router.push("/");
-      }, 3500);
+      if (login) {
+        await login(data.access_token);
+      }
+      router.push("/");
     } catch (err) {
       setError(err.message);
       setLoading(false);
@@ -176,7 +149,7 @@ export default function LoginPage() {
             {/* Submit */}
             <button
               type="submit"
-              disabled={loading || isAuthenticating}
+              disabled={loading}
               className="w-full rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 py-3.5 text-xs font-bold text-white shadow-lg shadow-blue-500/25 hover:from-blue-500 hover:to-indigo-500 transition active:scale-98 disabled:opacity-50 cursor-pointer"
             >
               {loading ? "Verifying Credentials..." : "Sign In to ShopSphere"}
@@ -191,36 +164,6 @@ export default function LoginPage() {
           </p>
         </div>
       </div>
-
-      {/* 3-4 SECOND LOGIN PROGRESS OVERLAY */}
-      {isAuthenticating && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/85 backdrop-blur-md p-4 animate-in fade-in">
-          <div className="w-full max-w-sm rounded-3xl border border-blue-500/40 bg-gray-900 p-8 text-center shadow-2xl space-y-6">
-            <div className="mx-auto h-16 w-16 rounded-2xl bg-blue-600/20 border border-blue-500 flex items-center justify-center text-3xl animate-pulse">
-              🛡️
-            </div>
-
-            <div>
-              <h3 className="text-xl font-black text-white tracking-tight">Logging You In</h3>
-              <p className="mt-2 text-xs text-blue-400 font-semibold h-5 transition-all">
-                {authStepMessage}
-              </p>
-            </div>
-
-            {/* Progress Bar (3.5s transition) */}
-            <div className="w-full bg-gray-950 rounded-full h-2.5 p-0.5 border border-gray-800 overflow-hidden">
-              <div
-                className="bg-gradient-to-r from-blue-500 via-indigo-500 to-purple-500 h-full rounded-full transition-all duration-1000 ease-out"
-                style={{ width: `${authProgress}%` }}
-              />
-            </div>
-
-            <p className="text-[11px] text-gray-500">
-              Securing connection with ShopSphere servers...
-            </p>
-          </div>
-        </div>
-      )}
     </main>
   );
 }

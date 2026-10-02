@@ -14,9 +14,13 @@ class User(Base):
     role = Column(String(20), nullable=False, default="user")
     is_verified = Column(Boolean, nullable=False, default=False)
     verification_code = Column(String(10), nullable=True)
+    verification_code_hash = Column(String(128), nullable=True)
+    verification_attempts = Column(Integer, nullable=False, default=0)
+    verification_code_sent_at = Column(DateTime, nullable=True)
     verification_code_expires_at = Column(DateTime, nullable=True)
     reset_password_token = Column(String(255), nullable=True, index=True)
     reset_password_expires_at = Column(DateTime, nullable=True)
+    token_version = Column(Integer, nullable=False, default=1)
 
     cart = relationship(
         "Cart",

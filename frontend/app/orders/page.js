@@ -309,14 +309,31 @@ function OrdersContent() {
                   {/* Top Bar: Order ID, Date & Total */}
                   <div className="flex flex-wrap items-center justify-between gap-4 border-b border-gray-800/80 pb-5">
                     <div>
-                      <div className="flex items-center gap-3">
+                      <div className="flex flex-wrap items-center gap-2">
                         <h2 className="text-lg font-black text-white">
                           Order #{order.id}
                         </h2>
+                        {/* Fulfillment Status Badge */}
                         <span
-                          className={`rounded-full px-3 py-0.5 text-xs font-bold border ${statusStyle.bg} ${statusStyle.text} ${statusStyle.border}`}
+                          className={`rounded-full px-2.5 py-0.5 text-[11px] font-bold border ${statusStyle.bg} ${statusStyle.text} ${statusStyle.border}`}
                         >
-                          {statusStyle.label}
+                          📦 {order.status === "pending" ? "Order Placed" : order.status === "confirmed" ? "Processing" : statusStyle.label}
+                        </span>
+                        {/* Distinct Payment Status Badge */}
+                        <span
+                          className={`rounded-full px-2.5 py-0.5 text-[11px] font-bold border ${
+                            order.status === "cancelled"
+                              ? "bg-gray-800/80 text-gray-400 border-gray-700"
+                              : order.status === "pending"
+                              ? "bg-amber-500/10 text-amber-400 border-amber-500/30"
+                              : "bg-emerald-500/10 text-emerald-400 border-emerald-500/30"
+                          }`}
+                        >
+                          💳 {order.status === "cancelled"
+                            ? "Payment: Voided"
+                            : order.status === "pending"
+                            ? "Payment: Unpaid"
+                            : "Payment: Paid"}
                         </span>
                       </div>
                       <p className="mt-1 text-xs text-gray-400">

@@ -49,3 +49,12 @@ def home():
     return {
         "message": "Welcome to ShopSphere API"
     }
+
+
+@app.get("/health")
+def health_check():
+    return {
+        "status": "healthy",
+        "service": "ShopSphere API",
+        "version": "1.0.0"
+    }

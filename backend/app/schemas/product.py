@@ -1,3 +1,4 @@
+from decimal import Decimal
 from pydantic import BaseModel, ConfigDict, Field
 
 
@@ -9,7 +10,7 @@ class ProductCreate(BaseModel):
 
     description: str | None = None
 
-    price: float = Field(
+    price: Decimal = Field(
         gt=0
     )
 
@@ -30,7 +31,7 @@ class ProductUpdate(BaseModel):
 
     description: str | None = None
 
-    price: float = Field(
+    price: Decimal = Field(
         gt=0
     )
 
@@ -56,7 +57,7 @@ class ProductResponse(BaseModel):
     id: int
     name: str
     description: str | None = None
-    price: float
+    price: Decimal
     stock: int
     category_id: int
     category: CategoryResponse

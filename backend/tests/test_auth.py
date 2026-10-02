@@ -199,3 +199,80 @@ def test_reregister_unverified_user_succeeds(client, db_session):
     )
     assert verify_res.status_code == 200
 
+
+def test_verification_code_brute_force_lockout(client, db_session):
+    client.post(
+        "/auth/register",
+        json={"name": "Lockout User", "email": "lockout@example.com", "password": "pass12345password"}
+    )
+
+    # 4 bad attempts return "Invalid verification code"
+    for _ in range(4):
+        res = client.post(
+            "/auth/verify-email",
+            json={"email": "lockout@example.com", "code": "000000"}
+        )
+        assert res.status_code == 400
+        assert "Invalid verification code" in res.json()["detail"]
+
+    # 5th bad attempt deactivates code and notifies user
+    res_5 = client.post(
+        "/auth/verify-email",
+        json={"email": "lockout@example.com", "code": "000000"}
+    )
+    assert res_5.status_code == 400
+    assert "Too many failed verification attempts" in res_5.json()["detail"]
+
+    # Subsequent attempt hits max limit and locks out with 429
+    res_lockout = client.post(
+        "/auth/verify-email",
+        json={"email": "lockout@example.com", "code": "000000"}
+    )
+    assert res_lockout.status_code == 429
+    assert "Maximum verification attempts exceeded" in res_lockout.json()["detail"]
+
+
+def test_resend_verification_cooldown(client):
+    client.post(
+        "/auth/register",
+        json={"name": "Cooldown User", "email": "cooldown@example.com", "password": "pass12345password"}
+    )
+
+    # Immediate second resend must hit 60s cooldown limit
+    res_spam = client.post(
+        "/auth/resend-verification",
+        json={"email": "cooldown@example.com"}
+    )
+    assert res_spam.status_code == 429
+    assert "before requesting a new code" in res_spam.json()["detail"]
+
+
+def test_password_reset_revokes_active_jwt_sessions(client, normal_user, db_session):
+    # 1. Login to get an active access token
+    login_res = client.post(
+        "/auth/login",
+        data={"username": normal_user.email, "password": "password123"}
+    )
+    assert login_res.status_code == 200
+    token = login_res.json()["access_token"]
+    headers = {"Authorization": f"Bearer {token}"}
+
+    # Verify token works
+    me_res = client.get("/auth/me", headers=headers)
+    assert me_res.status_code == 200
+
+    # 2. Trigger forgot password and reset password
+    client.post("/auth/forgot-password", json={"email": normal_user.email})
+    db_session.refresh(normal_user)
+
+    client.post(
+        "/auth/reset-password",
+        json={"token": normal_user.reset_password_token, "new_password": "supernewpassword999"}
+    )
+
+    # 3. Old JWT token must now be rejected because token_version was incremented!
+    me_after_reset = client.get("/auth/me", headers=headers)
+    assert me_after_reset.status_code == 401
+    assert "Session has been revoked due to a password reset" in me_after_reset.json()["detail"]
+
+

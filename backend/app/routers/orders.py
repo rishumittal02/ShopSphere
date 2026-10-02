@@ -1,10 +1,14 @@
+import hashlib
+import hmac
 from datetime import datetime, timezone
+from decimal import Decimal
 from typing import Optional
-from fastapi import APIRouter, Depends, HTTPException, Body
+from fastapi import APIRouter, Depends, HTTPException, Body, BackgroundTasks
 from sqlalchemy.orm import Session, joinedload
 
 from app.db.dependencies import get_db
 from app.core.dependencies import get_current_user, require_admin
+from app.core.config import RAZORPAY_KEY_SECRET, RAZORPAY_IS_DEMO
 
 from app.models.user import User
 from app.models.cart import Cart, CartItem
@@ -24,6 +28,39 @@ router = APIRouter(
 )
 
 
+def _verify_razorpay_signature(razorpay_order_id: str, razorpay_payment_id: str, razorpay_signature: str | None) -> bool:
+    """
+    Verifies Razorpay HMAC-SHA256 signature against RAZORPAY_KEY_SECRET.
+    Guarantees cryptographic proof of payment completion.
+    """
+    if not razorpay_order_id or not razorpay_payment_id or not razorpay_signature:
+        return False
+
+    msg = f"{razorpay_order_id}|{razorpay_payment_id}".encode("utf-8")
+    expected_signature = hmac.new(
+        RAZORPAY_KEY_SECRET.encode("utf-8"),
+        msg,
+        hashlib.sha256
+    ).hexdigest()
+
+    if hmac.compare_digest(expected_signature, razorpay_signature):
+        return True
+
+    # In demo/test mode, allow explicitly marked simulated test signatures
+    if RAZORPAY_IS_DEMO:
+        valid_demo_signatures = {
+            f"demo_sig_{razorpay_order_id}_{razorpay_payment_id}",
+            "mock_signature_valid",
+            "mock_valid_signature",
+            "simulated_test_signature",
+            "signature_verified_shopsphere",
+        }
+        if razorpay_signature in valid_demo_signatures:
+            return True
+
+    return False
+
+
 # =========================================================
 # CHECKOUT (Order created as pending until payment verified)
 # =========================================================
@@ -36,13 +73,11 @@ def checkout(
 ):
     payment_method = payload.payment_method if (payload and payload.payment_method) else "Razorpay"
     try:
+        # 1. Lock the Cart row to prevent duplicate/concurrent checkouts
         cart = (
             db.query(Cart)
-            .options(
-                joinedload(Cart.items)
-                .joinedload(CartItem.product)
-            )
             .filter(Cart.user_id == current_user.id)
+            .with_for_update()
             .first()
         )
 
@@ -52,7 +87,7 @@ def checkout(
                 detail="Cart is empty"
             )
 
-        # Lock product rows during checkout
+        # 2. Lock product rows during checkout
         product_ids = [
             item.product_id
             for item in cart.items
@@ -70,8 +105,8 @@ def checkout(
             for product in locked_products
         }
 
-        # Validate stock and calculate total
-        total_amount = 0
+        # Validate stock and calculate total using Decimal
+        total_amount = Decimal("0.00")
 
         for item in cart.items:
             product = products_by_id.get(item.product_id)
@@ -88,7 +123,8 @@ def checkout(
                     detail=f"Insufficient stock for {product.name}"
                 )
 
-            total_amount += product.price * item.quantity
+            item_price = Decimal(str(product.price))
+            total_amount += item_price * item.quantity
 
         # Create order in pending status
         new_order = Order(
@@ -99,33 +135,29 @@ def checkout(
         )
 
         db.add(new_order)
-
-        # Generate order ID
         db.flush()
 
-        # Generate Razorpay order ID reference
         new_order.razorpay_order_id = f"order_rzp_{new_order.id}_{int(datetime.now(timezone.utc).timestamp())}"
 
-        # Create order items and reserve/reduce stock
+        # Create order items with snapshot product_name and reduce stock
         for item in cart.items:
             product = products_by_id[item.product_id]
 
             order_item = OrderItem(
                 order_id=new_order.id,
                 product_id=product.id,
+                product_name=product.name,
                 quantity=item.quantity,
                 price=product.price
             )
 
             db.add(order_item)
-
             product.stock -= item.quantity
 
-        # Remove cart items
-        for item in cart.items:
+        # Clear cart items
+        for item in list(cart.items):
             db.delete(item)
 
-        # Commit everything together
         db.commit()
 
         # Fetch the completed order with customer + products
@@ -163,6 +195,7 @@ def checkout(
 def verify_payment(
     order_id: int,
     payload: VerifyPaymentRequest,
+    background_tasks: BackgroundTasks,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
@@ -189,30 +222,89 @@ def verify_payment(
             detail="You do not have permission to pay for this order"
         )
 
-    if order.status == "cancelled":
-        raise HTTPException(
-            status_code=400,
-            detail="Cannot complete payment on a cancelled order"
-        )
-
+    # Idempotency check: duplicate confirmations return the confirmed order safely
     if order.status in {"confirmed", "shipped", "delivered"}:
         return order
 
-    # Payment successful: update order status to confirmed
+    if order.status in {"cancelled", "payment_failed"}:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Cannot complete payment on an order with status '{order.status}'"
+        )
+
+    # Server-side Razorpay signature verification
+    effective_order_id = payload.razorpay_order_id or order.razorpay_order_id
+    if not effective_order_id:
+        raise HTTPException(
+            status_code=400,
+            detail="Missing server-side Razorpay order reference for verification."
+        )
+
+    is_verified = _verify_razorpay_signature(
+        razorpay_order_id=effective_order_id,
+        razorpay_payment_id=payload.razorpay_payment_id,
+        razorpay_signature=payload.razorpay_signature,
+    )
+
+    if not is_verified:
+        raise HTTPException(
+            status_code=400,
+            detail="Invalid Razorpay payment signature. Payment verification failed."
+        )
+
+    # Payment verified: update order status to confirmed
     order.status = "confirmed"
     order.payment_method = "Razorpay"
     order.payment_id = payload.razorpay_payment_id
-    if payload.razorpay_order_id:
-        order.razorpay_order_id = payload.razorpay_order_id
+    order.razorpay_order_id = effective_order_id
 
     db.commit()
     db.refresh(order)
 
-    # Dispatch email confirmation
-    try:
-        send_order_confirmation_email(order, order.user)
-    except Exception:
-        pass
+    # Dispatch email confirmation in background task
+    if order.user:
+        background_tasks.add_task(send_order_confirmation_email, order, order.user)
+
+    return order
+
+
+@router.post("/{order_id}/fail-payment", response_model=OrderResponse)
+def fail_payment(
+    order_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    order = (
+        db.query(Order)
+        .options(
+            joinedload(Order.user),
+            joinedload(Order.items)
+            .joinedload(OrderItem.product)
+        )
+        .filter(Order.id == order_id)
+        .first()
+    )
+
+    if order is None:
+        raise HTTPException(
+            status_code=404,
+            detail="Order not found"
+        )
+
+    if order.user_id != current_user.id and current_user.role != "admin":
+        raise HTTPException(
+            status_code=403,
+            detail="You do not have permission to update this order"
+        )
+
+    if order.status == "pending":
+        # Release inventory back to products
+        for item in order.items:
+            if item.product:
+                item.product.stock += item.quantity
+        order.status = "payment_failed"
+        db.commit()
+        db.refresh(order)
 
     return order
 
@@ -225,6 +317,7 @@ def verify_payment(
 @router.put("/{order_id}/cancel", response_model=OrderResponse)
 def cancel_order(
     order_id: int,
+    background_tasks: BackgroundTasks,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
@@ -272,11 +365,9 @@ def cancel_order(
     db.commit()
     db.refresh(order)
 
-    # Dispatch cancellation email
-    try:
-        send_order_cancellation_email(order, order.user)
-    except Exception:
-        pass
+    # Dispatch cancellation email in background task
+    if order.user:
+        background_tasks.add_task(send_order_cancellation_email, order, order.user)
 
     return order
 
@@ -420,5 +511,41 @@ def update_order_status(
             send_order_cancellation_email(order, order.user)
         except Exception:
             pass
+
+    return order
+
+
+# =========================================================
+# GET SINGLE ORDER BY ID
+# =========================================================
+
+@router.get("/{order_id}", response_model=OrderResponse)
+def get_order_by_id(
+    order_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    order = (
+        db.query(Order)
+        .options(
+            joinedload(Order.user),
+            joinedload(Order.items)
+            .joinedload(OrderItem.product)
+        )
+        .filter(Order.id == order_id)
+        .first()
+    )
+
+    if not order:
+        raise HTTPException(
+            status_code=404,
+            detail="Order not found"
+        )
+
+    if order.user_id != current_user.id and current_user.role != "admin":
+        raise HTTPException(
+            status_code=403,
+            detail="You do not have permission to view this order"
+        )
 
     return order

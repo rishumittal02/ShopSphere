@@ -11,7 +11,7 @@ def test_create_product_success(client, admin_token, sample_category):
     assert response.status_code == 200
     data = response.json()
     assert data["name"] == payload["name"]
-    assert data["price"] == payload["price"]
+    assert float(data["price"]) == float(payload["price"])
     assert data["stock"] == payload["stock"]
     assert data["category"]["id"] == sample_category.id
 
@@ -81,7 +81,7 @@ def test_update_product(client, admin_token, sample_product):
     assert response.status_code == 200
     data = response.json()
     assert data["name"] == "Updated Smartphone X Pro"
-    assert data["price"] == 899.99
+    assert float(data["price"]) == 899.99
     assert data["stock"] == 15
 
 
@@ -159,12 +159,12 @@ def test_sort_products(client, sample_category, db_session):
 
     # Price asc
     res_price_asc = client.get("/products/?sort=price_asc")
-    prices = [p["price"] for p in res_price_asc.json()]
+    prices = [float(p["price"]) for p in res_price_asc.json()]
     assert prices == sorted(prices)
 
     # Price desc
     res_price_desc = client.get("/products/?sort=price_desc")
-    prices_desc = [p["price"] for p in res_price_desc.json()]
+    prices_desc = [float(p["price"]) for p in res_price_desc.json()]
     assert prices_desc == sorted(prices_desc, reverse=True)
 
 
@@ -236,4 +236,54 @@ def test_delete_product_linked_to_orders(client, admin_token, sample_product, no
     assert response.status_code == 400
     assert "linked to 1 past customer order" in response.json()["detail"]
     assert "set its stock to 0" in response.json()["detail"]
+
+
+def test_create_and_fetch_product_reviews(client, normal_user_token, sample_product):
+    headers = {"Authorization": f"Bearer {normal_user_token}"}
+
+    # Fetch initial empty reviews
+    empty_res = client.get(f"/products/{sample_product.id}/reviews")
+    assert empty_res.status_code == 200
+    assert empty_res.json()["total_reviews"] == 0
+    assert empty_res.json()["average_rating"] == 0.0
+
+    # Post a new review
+    create_res = client.post(
+        f"/products/{sample_product.id}/reviews",
+        json={"rating": 5, "comment": "Outstanding build quality and fit!"},
+        headers=headers,
+    )
+    assert create_res.status_code == 201
+    created = create_res.json()
+    assert created["rating"] == 5
+    assert created["comment"] == "Outstanding build quality and fit!"
+
+    # Fetch reviews again - should calculate average rating and include new review
+    list_res = client.get(f"/products/{sample_product.id}/reviews")
+    assert list_res.status_code == 200
+    data = list_res.json()
+    assert data["total_reviews"] == 1
+    assert data["average_rating"] == 5.0
+    assert len(data["reviews"]) == 1
+    assert data["reviews"][0]["comment"] == "Outstanding build quality and fit!"
+
+
+def test_create_review_unauthenticated(client, sample_product):
+    res = client.post(
+        f"/products/{sample_product.id}/reviews",
+        json={"rating": 4, "comment": "Nice product without login"},
+    )
+    assert res.status_code == 401
+
+
+def test_create_review_invalid_rating(client, normal_user_token, sample_product):
+    headers = {"Authorization": f"Bearer {normal_user_token}"}
+    # Rating out of bounds (must be 1-5)
+    res = client.post(
+        f"/products/{sample_product.id}/reviews",
+        json={"rating": 6, "comment": "Too high rating"},
+        headers=headers,
+    )
+    assert res.status_code == 422
+
 

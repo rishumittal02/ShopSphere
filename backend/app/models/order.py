@@ -86,6 +86,11 @@ class OrderItem(Base):
         nullable=False
     )
 
+    product_name = Column(
+        String(255),
+        nullable=True
+    )
+
     quantity = Column(
         Integer,
         nullable=False

@@ -1,22 +1,28 @@
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import or_
 from sqlalchemy.orm import Session, joinedload
 from sqlalchemy.exc import IntegrityError
 from typing import Literal
 
 from app.db.dependencies import get_db
-from app.core.dependencies import require_admin
+from app.core.dependencies import require_admin, get_current_user
 
 from app.models.user import User
 from app.models.product import Product
 from app.models.category import Category
 from app.models.cart import CartItem
 from app.models.order import OrderItem
+from app.models.review import Review
 
 from app.schemas.product import (
     ProductCreate,
     ProductUpdate,
     ProductResponse
+)
+from app.schemas.review import (
+    ReviewCreate,
+    ReviewResponse,
+    ReviewSummaryResponse
 )
 
 
@@ -305,3 +311,81 @@ def delete_product(
     return {
         "message": f"Product '{product.name}' deleted successfully"
     }
+
+
+# =========================================================
+# PRODUCT REVIEWS
+# =========================================================
+
+@router.get("/{product_id}/reviews", response_model=ReviewSummaryResponse)
+def get_product_reviews(
+    product_id: int,
+    db: Session = Depends(get_db)
+):
+    product = db.query(Product).filter(Product.id == product_id).first()
+    if not product:
+        raise HTTPException(
+            status_code=404,
+            detail="Product not found"
+        )
+
+    reviews = (
+        db.query(Review)
+        .options(joinedload(Review.user))
+        .filter(Review.product_id == product_id)
+        .order_by(Review.created_at.desc())
+        .all()
+    )
+
+    total = len(reviews)
+    avg_rating = round(sum(r.rating for r in reviews) / total, 1) if total > 0 else 0.0
+
+    return {
+        "average_rating": avg_rating,
+        "total_reviews": total,
+        "reviews": reviews
+    }
+
+
+@router.post("/{product_id}/reviews", response_model=ReviewResponse, status_code=status.HTTP_201_CREATED)
+def create_product_review(
+    product_id: int,
+    payload: ReviewCreate,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    product = db.query(Product).filter(Product.id == product_id).first()
+    if not product:
+        raise HTTPException(
+            status_code=404,
+            detail="Product not found"
+        )
+
+    # Clean comment
+    comment_clean = payload.comment.strip()
+    if not comment_clean:
+        raise HTTPException(
+            status_code=400,
+            detail="Review comment cannot be empty."
+        )
+
+    review = Review(
+        product_id=product_id,
+        user_id=current_user.id,
+        rating=payload.rating,
+        comment=comment_clean
+    )
+
+    db.add(review)
+    db.commit()
+    db.refresh(review)
+
+    # Eager load user relationship for response
+    review_with_user = (
+        db.query(Review)
+        .options(joinedload(Review.user))
+        .filter(Review.id == review.id)
+        .first()
+    )
+
+    return review_with_user

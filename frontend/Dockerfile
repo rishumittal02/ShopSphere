@@ -8,6 +8,8 @@ RUN npm ci
 
 # Copy source code and build production Next.js artifact
 COPY . .
+ARG NEXT_PUBLIC_BACKEND_URL=http://localhost:8000
+ENV NEXT_PUBLIC_BACKEND_URL=${NEXT_PUBLIC_BACKEND_URL}
 RUN npm run build
 
 # Production runner image
